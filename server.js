@@ -1,8 +1,10 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const connectDB = require('./config/db');
+const connectDB = require('./DB/db');
 const authRoutes = require('./Routes/auth');
+const adminRoutes = require('./Routes/adminRoutes');
+const studentRoutes = require('./Routes/studentRoutes');
 
 
 dotenv.config();
@@ -10,6 +12,8 @@ connectDB();
 
 const app = express();
 app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/student', studentRoutes);
 
 // Middleware
 app.use(cors());
