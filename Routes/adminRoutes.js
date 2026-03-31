@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 // Middlewares
-const auth = require('../middleware/authMiddleware'); // Token check karne k liye
+const auth = require('../middleware/auth'); // Token check karne k liye
 const upload = require('../middleware/cloudinaryConfig'); // File upload karne k liye
 
 // Controllers

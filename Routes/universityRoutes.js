@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const auth = require('../middleware/authMiddleware');
+const auth = require('../middleware/auth');
 const { searchStudentByPassport, getUniversityProfile } = require('../Controllers/universityController');
 
 // University Profile
