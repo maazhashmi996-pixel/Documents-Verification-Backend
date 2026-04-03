@@ -1,27 +1,68 @@
 const mongoose = require("mongoose");
+
 const UserSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, unique: true, required: true },
-    password: { type: String, required: true },
-    passportNumber: { type: String, unique: true, sparse: true }, // Sirf student ke liye
+    name: {
+        type: String,
+        required: true
+    },
+    email: {
+        type: String,
+        unique: true,
+        required: true,
+        lowercase: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    // Passport Number: Sirf students ke liye unique hoga. 
+    // Sparse: true ka matlab hai ke jin ke paas ye field nahi (University/Admin), unka index create nahi hoga.
+    passportNumber: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
     role: {
         type: String,
         enum: ["student", "admin", "university"],
         default: "student"
     },
-    isApproved: { type: Boolean, default: false }, // Admin approval
-    isPaid: { type: Boolean, default: false },     // 5000 Fees check
+    // Admin approval protocol
+    isApproved: {
+        type: Boolean,
+        default: false
+    },
+    // Payment status for students (5000 PKR)
+    isPaid: {
+        type: Boolean,
+        default: false
+    },
 
-    // Documents Array
+    // University Specific Field (Request identification ke liye zaroori hai)
+    instituteName: {
+        type: String
+    },
+
+    // Documents Array (Tracking system)
     documents: [
         {
-            title: String,
-            institute: String,
-            fileUrl: String,           // Student ka upload
-            verificationImg: String,   // Admin ka screenshot
-            status: { type: String, default: "Pending" }
+            title: { type: String },
+            institute: { type: String },
+            fileUrl: { type: String },           // Student upload path
+            verificationImg: { type: String },   // Admin verification screenshot
+            status: {
+                type: String,
+                enum: ["Pending", "Verified", "Rejected"],
+                default: "Pending"
+            },
+            createdAt: { type: Date, default: Date.now }
         }
     ]
-}, { timestamps: true });
+}, {
+    timestamps: true // adds createdAt and updatedAt fields automatically
+});
+
+// Optimization: Indexing for faster queries on role and approval status
+UserSchema.index({ role: 1, isApproved: 1 });
 
 module.exports = mongoose.models.User || mongoose.model("User", UserSchema);

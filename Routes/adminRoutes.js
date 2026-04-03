@@ -2,53 +2,39 @@ const express = require('express');
 const router = express.Router();
 
 // --- MIDDLEWARES ---
-// 'protect' token verify karta hai, 'adminOnly' check karta hai ke role admin hai ya nahi
+// Rasta (path) check karlein ke 'middleware/auth' hi hai ya 'middleware/authMiddleware'
 const { protect, adminOnly } = require('../middleware/auth');
-const upload = require('../middleware/cloudinaryConfig'); // Cloudinary/Multer config
+const upload = require('../middleware/cloudinaryConfig');
 
-// --- CONTROLLERS ---
-const {
-    getAdminStats,      // Dashboard summary cards ke liye
-    getAllStudents,     // Search aur directory ke liye
-    getPendingUsers,    // Approval list ke liye
-    approveUser,        // Approve button ke liye
-    verifyDocument      // Doc verification + screenshot upload
-} = require('../controllers/adminController');
+// --- CONTROLLER IMPORT ---
+const adminController = require('../controllers/adminController');
 
 // ============================================================
 // 1. ANALYTICS & DIRECTORY ROUTES
 // ============================================================
 
-// @desc    Get VIP Dashboard Stats (Revenue, Students, Trends)
-// @access  Private/Admin
-router.get('/stats', protect, adminOnly, getAdminStats);
+// Dashboard Stats
+router.get('/stats', protect, adminOnly, adminController.getAdminStats);
 
-// @desc    Get All Students (Supports search by name/passport)
-// @access  Private/Admin
-router.get('/students', protect, adminOnly, getAllStudents);
-
+// All Students (Search/List)
+router.get('/students', protect, adminOnly, adminController.getAllStudents);
 
 // ============================================================
 // 2. USER APPROVAL ROUTES
 // ============================================================
 
-// @desc    Sary pending (isApproved: false) users ki list dekhna
-// @access  Private/Admin
-router.get('/pending-users', protect, adminOnly, getPendingUsers);
+// Pending Users List
+router.get('/pending-users', protect, adminOnly, adminController.getPendingUsers);
 
-// @desc    User (Student/University) ko approve karna
-// @access  Private/Admin
-router.put('/approve/:id', protect, adminOnly, approveUser);
-
+// Approve Student/University
+router.put('/approve/:id', protect, adminOnly, adminController.approveUser);
 
 // ============================================================
 // 3. DOCUMENT VERIFICATION ROUTES
 // ============================================================
 
-// @desc    Student ka document verify karna + Screenshot upload karna
-// 'file' wo key hai jo frontend FormData mein use hogi
-// @access  Private/Admin
-router.put('/verify-doc/:studentId/:docId', protect, adminOnly, upload.single('file'), verifyDocument);
-
+// Verify Doc + Screenshot Upload
+// Frontend se 'file' ki key mein image bhejna
+router.put('/verify-doc/:studentId/:docId', protect, adminOnly, upload.single('file'), adminController.verifyDocument);
 
 module.exports = router;
