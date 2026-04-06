@@ -33,7 +33,6 @@ exports.signup = async (req, res) => {
             name,
             email,
             password,
-            // Role based data mapping
             passportNumber: role === 'student' ? passportNumber : undefined,
             instituteName: role === 'university' ? instituteName : undefined,
             role: role || 'student',
