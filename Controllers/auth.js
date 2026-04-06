@@ -46,7 +46,6 @@ exports.signup = async (req, res) => {
         // 6. Save to Database
         await user.save();
 
-        // Custom Success Messages for VIP UX
         let successMsg = "Registration successful. Please wait for Admin approval before logging in.";
         if (role === 'admin') successMsg = "Admin account created successfully. You can login now.";
         if (role === 'university') successMsg = "University registration request sent to Admin. Waiting for approval.";
