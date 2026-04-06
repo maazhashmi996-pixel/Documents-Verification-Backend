@@ -72,7 +72,7 @@ exports.login = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: "Invalid Credentials" });
 
-        // 3. CRITICAL: Admin Approval Check
+        //  Admin Approval Check
         // Agar isApproved false hai (Student/University), toh login block kar do
         if (!user.isApproved) {
             return res.status(403).json({
