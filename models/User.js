@@ -15,8 +15,6 @@ const UserSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    // Passport Number: Sirf students ke liye unique hoga. 
-    // Sparse: true ka matlab hai ke jin ke paas ye field nahi (University/Admin), unka index create nahi hoga.
     passportNumber: {
         type: String,
         unique: true,
@@ -27,29 +25,49 @@ const UserSchema = new mongoose.Schema({
         enum: ["student", "admin", "university"],
         default: "student"
     },
-    // Admin approval protocol
+    // --- ADMIN APPROVAL PROTOCOL ---
+    // Ye tab true hoga jab admin profile verify karega
     isApproved: {
         type: Boolean,
         default: false
     },
-    // Payment status for students (5000 PKR)
+    // --- PAYMENT SYSTEM ---
     isPaid: {
         type: Boolean,
         default: false
     },
+    // Naya object: Payment proof save karne ke liye
+    paymentDetails: {
+        transactionId: {
+            type: String,
+            default: ""
+        },
+        proofImage: {
+            type: String,
+            default: ""
+        }, // Cloudinary URL for screenshot
+        paymentStatus: {
+            type: String,
+            enum: ["None", "Pending", "Approved", "Rejected"],
+            default: "None"
+        },
+        submittedAt: {
+            type: Date
+        }
+    },
 
-    // University Specific Field (Request identification ke liye zaroori hai)
+    // University Specific Field
     instituteName: {
         type: String
     },
 
-    // Documents Array (Tracking system)
+    // --- DOCUMENTS ARRAY ---
     documents: [
         {
             title: { type: String },
             institute: { type: String },
-            fileUrl: { type: String },           // Student upload path
-            verificationImg: { type: String },   // Admin verification screenshot
+            fileUrl: { type: String },
+            verificationImg: { type: String },
             status: {
                 type: String,
                 enum: ["Pending", "Verified", "Rejected"],
@@ -59,10 +77,11 @@ const UserSchema = new mongoose.Schema({
         }
     ]
 }, {
-    timestamps: true // adds createdAt and updatedAt fields automatically
+    timestamps: true
 });
 
-// Optimization: Indexing for faster queries on role and approval status
+// Optimization
 UserSchema.index({ role: 1, isApproved: 1 });
+UserSchema.index({ "paymentDetails.paymentStatus": 1 });
 
 module.exports = mongoose.models.User || mongoose.model("User", UserSchema);

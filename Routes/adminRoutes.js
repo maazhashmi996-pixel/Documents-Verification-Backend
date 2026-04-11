@@ -7,7 +7,7 @@ const { protect, adminOnly } = require('../middleware/auth');
 const upload = require('../middleware/cloudinaryConfig');
 
 // --- CONTROLLER IMPORT ---
-const adminController = require('../controllers/adminController');
+const adminController = require('../Controllers/adminController');
 
 // ============================================================
 // 1. ANALYTICS & DIRECTORY ROUTES

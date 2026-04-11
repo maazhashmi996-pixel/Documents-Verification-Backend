@@ -2,7 +2,6 @@ const express = require('express');
 const router = express.Router();
 
 // --- MIDDLEWARES ---
-// 'auth' ki jagah '{ protect }' use karein kyunke humne middleware update kar diya hai
 const { protect } = require('../middleware/auth');
 const upload = require('../middleware/cloudinaryConfig');
 
@@ -10,7 +9,7 @@ const upload = require('../middleware/cloudinaryConfig');
 const {
     uploadDocument,
     getStudentDashboard,
-    makePayment,
+    submitPaymentProof, // Updated: Controller ke naye naam se match kar diya
     deleteDocument
 } = require('../Controllers/studentController');
 
@@ -22,12 +21,14 @@ const {
 // @access  Private/Student
 router.get('/dashboard', protect, getStudentDashboard);
 
-// @desc    Handle Student Payment
+// @desc    Handle Student Payment Proof Submission
 // @access  Private/Student
-router.put('/pay', protect, makePayment);
+// POST method use kiya hai kyunke hum screenshot (file) upload kar rahe hain
+router.post('/submit-payment', protect, upload.single('file'), submitPaymentProof);
 
 // @desc    Upload Document (Single File)
 // @access  Private/Student
+// Ismein controller check karega ke 'isPaid' true hai ya nahi
 router.post('/upload', protect, upload.single('file'), uploadDocument);
 
 // @desc    Delete Specific Document
