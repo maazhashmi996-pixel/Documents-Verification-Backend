@@ -2,111 +2,121 @@ const User = require('../models/User');
 
 /**
  * @route   GET /api/student/dashboard
- * @desc    Student ka apna profile aur documents ka data dekhna
+ * @desc    Student ka profile aur documents ka data dekhna
  */
 exports.getStudentDashboard = async (req, res) => {
     try {
-        // req.user.id authMiddleware se aa raha hai
         const user = await User.findById(req.user.id).select('-password');
-
-        if (!user) {
-            return res.status(404).json({ msg: "User not found" });
-        }
-
+        if (!user) return res.status(404).json({ msg: "User not found" });
         res.json(user);
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send("Server Error");
+        console.error("Dashboard Error:", err.message);
+        res.status(500).json({ msg: "Server Error" });
     }
 };
 
 /**
- * @route   PUT /api/student/pay-fees
- * @desc    Student ki 5000 PKR fees update karna (Simulation)
+ * @route   POST /api/student/submit-payment
+ * @desc    Student payment proof (Screenshot + TID) submit karega
+ * @access  Private/Student
  */
-exports.makePayment = async (req, res) => {
+exports.submitPaymentProof = async (req, res) => {
     try {
-        const user = await User.findById(req.user.id);
+        const { transactionId } = req.body;
+        const proofImage = req.file ? req.file.path : null; // Cloudinary URL
 
-        if (user.isPaid) {
-            return res.status(400).json({ msg: "Fees already paid." });
+        if (!transactionId || !proofImage) {
+            return res.status(400).json({ msg: "Please provide Transaction ID and Screenshot proof." });
         }
 
-        // Yahan aap Stripe ya kisi aur gateway ka logic add kar sakty hain
-        user.isPaid = true;
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        // Update Payment Details for Admin Review
+        user.paymentDetails = {
+            transactionId,
+            proofImage,
+            paymentStatus: 'Pending',
+            submittedAt: Date.now()
+        };
+
+        // Note: isPaid abhi false hi rahega jab tak Admin approve na karde
         await user.save();
 
-        res.json({ msg: "Payment of 5000 PKR successful! You can now upload documents.", isPaid: user.isPaid });
+        res.json({
+            msg: "Payment proof submitted! Please wait for Admin approval.",
+            paymentStatus: user.paymentDetails.paymentStatus
+        });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send("Server Error");
+        console.error("Payment Proof Error:", err.message);
+        res.status(500).json({ msg: "Server Error" });
     }
 };
 
 /**
- * @route   POST /api/student/upload-doc
- * @desc    Student ka document upload karna (Title, Institute aur File ke sath)
+ * @route   POST /api/student/upload
+ * @desc    Document upload (Sirf tabhi jab isPaid true ho)
  */
 exports.uploadDocument = async (req, res) => {
     try {
         const { title, institute } = req.body;
-        const studentId = req.user.id;
+        const user = await User.findById(req.user.id);
 
-        // 1. Check if file exists in request
-        if (!req.file) {
-            return res.status(400).json({ msg: "Please upload a document file (PDF, JPG, or PNG)." });
-        }
+        if (!user) return res.status(404).json({ msg: "User not found." });
 
-        const user = await User.findById(studentId);
-
-        // 2. Check if student is approved by Admin
+        // 1. Check if Account is Approved
         if (!user.isApproved) {
-            return res.status(403).json({ msg: "Account not approved. Contact Admin." });
+            return res.status(403).json({ msg: "Your account is pending admin approval." });
         }
 
-        // 3. Check if student has paid 5000 PKR
+        // 2. Check if Payment is Approved by Admin
         if (!user.isPaid) {
-            return res.status(403).json({ msg: "Please pay 5000 PKR fees before uploading." });
+            let statusMsg = "Please pay 5000 PKR fees before uploading.";
+            if (user.paymentDetails.paymentStatus === 'Pending') {
+                statusMsg = "Your payment is currently being verified by Admin. Please wait.";
+            }
+            return res.status(403).json({ msg: statusMsg });
         }
 
-        // 4. Create new document object
+        if (!req.file) {
+            return res.status(400).json({ msg: "Please upload a document file." });
+        }
+
         const newDoc = {
             title: title || "Untitled Document",
             institute: institute || "Not Specified",
-            fileUrl: req.file.path, // Cloudinary ka secure URL
+            fileUrl: req.file.path,
             status: 'Pending',
-            verificationImg: "" // Initial khali hoga jab tak admin upload na kary
+            createdAt: new Date()
         };
 
-        // 5. Save to Array
         user.documents.push(newDoc);
         await user.save();
 
-        res.json({
-            msg: "Document uploaded successfully!",
-            document: newDoc
-        });
+        res.json({ msg: "Document uploaded successfully!", document: newDoc });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send("Server Error");
+        console.error("❌ Upload Error:", err);
+        res.status(500).json({ msg: "Internal Server Error" });
     }
 };
 
 /**
  * @route   DELETE /api/student/document/:docId
- * @desc    Student apna document delete kar saky (Optional functionality)
+ * @desc    Student document delete karega
  */
 exports.deleteDocument = async (req, res) => {
     try {
         const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
 
-        // Document filter karky nikal dena
-        user.documents = user.documents.filter(doc => doc._id.toString() !== req.params.docId);
+        user.documents = user.documents.filter(
+            doc => doc._id.toString() !== req.params.docId
+        );
 
         await user.save();
         res.json({ msg: "Document removed successfully." });
     } catch (err) {
-        console.error(err.message);
-        res.status(500).send("Server Error");
+        console.error("Delete Error:", err.message);
+        res.status(500).json({ msg: "Server Error" });
     }
 };

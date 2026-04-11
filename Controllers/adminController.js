@@ -70,17 +70,21 @@ exports.getAdminStats = async (req, res) => {
 
 /**
  * @route   GET /api/admin/students
- * @desc    Get All Students with Search (Name/Passport)
+ * @desc    Get All Users (Students & Universities) with Search
  */
 exports.getAllStudents = async (req, res) => {
     try {
         const { search } = req.query;
-        let query = { role: 'student' };
+
+        // UPDATE: 'student' ki jagah dono roles fetch kiye taake university bhi nazar aaye
+        let query = { role: { $in: ['student', 'university'] } };
 
         if (search) {
             query.$or = [
                 { name: { $regex: search, $options: 'i' } },
-                { passportNumber: { $regex: search, $options: 'i' } }
+                { email: { $regex: search, $options: 'i' } }, // Search by Email add kiya
+                { passportNumber: { $regex: search, $options: 'i' } },
+                { instituteName: { $regex: search, $options: 'i' } } // University name search
             ];
         }
 
@@ -129,7 +133,7 @@ exports.approveUser = async (req, res) => {
         await user.save();
 
         res.json({
-            msg: `${user.name} (${user.role}) approved successfully.`,
+            msg: `${user.name || user.instituteName} (${user.role}) approved successfully.`,
             user: { id: user._id, isApproved: user.isApproved }
         });
     } catch (err) {
