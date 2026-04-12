@@ -1,8 +1,8 @@
 const User = require('../models/User');
 
 /**
- * @route   GET /api/student/dashboard
- * @desc    Student ka profile aur documents ka data dekhna
+ * @route    GET /api/student/dashboard
+ * @desc     Student ka profile aur documents ka data dekhna
  */
 exports.getStudentDashboard = async (req, res) => {
     try {
@@ -16,9 +16,9 @@ exports.getStudentDashboard = async (req, res) => {
 };
 
 /**
- * @route   POST /api/student/submit-payment
- * @desc    Student payment proof (Screenshot + TID) submit karega
- * @access  Private/Student
+ * @route    POST /api/student/submit-payment
+ * @desc     Student payment proof (Screenshot + TID) submit karega
+ * @access   Private/Student
  */
 exports.submitPaymentProof = async (req, res) => {
     try {
@@ -54,8 +54,8 @@ exports.submitPaymentProof = async (req, res) => {
 };
 
 /**
- * @route   POST /api/student/upload
- * @desc    Document upload (Sirf tabhi jab isPaid true ho)
+ * @route    POST /api/student/upload
+ * @desc     Document upload (Sirf tabhi jab isPaid true ho)
  */
 exports.uploadDocument = async (req, res) => {
     try {
@@ -101,8 +101,8 @@ exports.uploadDocument = async (req, res) => {
 };
 
 /**
- * @route   DELETE /api/student/document/:docId
- * @desc    Student document delete karega
+ * @route    DELETE /api/student/document/:docId
+ * @desc     Student document delete karega
  */
 exports.deleteDocument = async (req, res) => {
     try {
@@ -118,5 +118,51 @@ exports.deleteDocument = async (req, res) => {
     } catch (err) {
         console.error("Delete Error:", err.message);
         res.status(500).json({ msg: "Server Error" });
+    }
+};
+
+/**
+ * @route    GET /api/student/verify-passport
+ * @desc     Verify Passport from University Database (REAL DB FETCH)
+ */
+exports.verifyPassportNumber = async (req, res) => {
+    try {
+        const { passport } = req.query;
+
+        if (!passport) {
+            return res.status(400).json({ success: false, msg: "Passport number is required" });
+        }
+
+        // --- FIXED: Ab ye database se user ka pura data nikalega ---
+        const student = await User.findOne({ passportNumber: passport }).select('-password');
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                msg: "No record found in secure database. Please check the passport number."
+            });
+        }
+
+        // Pura record construct kar rahe hain jo University Dashboard ko chahiye
+        const record = {
+            passportNumber: student.passportNumber,
+            fullName: student.name, // Frontend expects fullName
+            university: student.university || "Qual Check Verified Institute",
+            isAuthentic: student.isApproved, // Agar admin ne approve kiya hai to authentic hai
+            isPaid: student.isPaid,
+            documents: student.documents, // Ye array ab Frontend ko milega
+            remarks: student.adminRemarks || "Credentials verified and active in the global registry.",
+            paymentDetails: student.paymentDetails // Slip verification ke liye
+        };
+
+        res.status(200).json({
+            success: true,
+            msg: "Passport record decrypted successfully",
+            data: record
+        });
+
+    } catch (err) {
+        console.error("Passport Verification Error:", err.message);
+        res.status(500).json({ success: false, msg: "University Database Server Error" });
     }
 };
