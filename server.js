@@ -34,6 +34,12 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
 
+/** * FIXED: University Verification Route alias
+ * Agar aap frontend se /api/university/verify-passport hit kar rahe hain,
+ * to hum studentRoutes ko hi yahan link kar rahe hain taaki 404 error khatam ho jaye.
+ */
+app.use('/api/university', studentRoutes);
+
 // 6. Base Route
 app.get('/', (req, res) => {
     res.json({
@@ -65,4 +71,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📡 Health Check: http://localhost:${PORT}/`);
+    console.log(`🛠️ University API: http://localhost:${PORT}/api/university/verify-passport`);
 });

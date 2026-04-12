@@ -9,30 +9,49 @@ const upload = require('../middleware/cloudinaryConfig');
 const {
     uploadDocument,
     getStudentDashboard,
-    submitPaymentProof, // Updated: Controller ke naye naam se match kar diya
-    deleteDocument
+    submitPaymentProof,
+    deleteDocument,
+    verifyPassportNumber // Naya controller function university data ke liye
 } = require('../Controllers/studentController');
 
 // ============================================================
 // STUDENT PORTAL ROUTES
 // ============================================================
 
-// @desc    Get Student Dashboard Data (Profile, Docs Status)
-// @access  Private/Student
+/**
+ * @route   GET /api/student/dashboard
+ * @desc    Get Student Dashboard Data (Profile, Docs Status)
+ * @access  Private/Student
+ */
 router.get('/dashboard', protect, getStudentDashboard);
 
-// @desc    Handle Student Payment Proof Submission
-// @access  Private/Student
-// POST method use kiya hai kyunke hum screenshot (file) upload kar rahe hain
+/**
+ * @route   GET /api/student/verify-passport
+ * @desc    Verify Passport from University Database
+ * @access  Private/Student
+ * @query   ?passport=123456
+ */
+router.get('/verify-passport', protect, verifyPassportNumber);
+
+/**
+ * @route   POST /api/student/submit-payment
+ * @desc    Handle Student Payment Proof Submission
+ * @access  Private/Student
+ */
 router.post('/submit-payment', protect, upload.single('file'), submitPaymentProof);
 
-// @desc    Upload Document (Single File)
-// @access  Private/Student
-// Ismein controller check karega ke 'isPaid' true hai ya nahi
+/**
+ * @route   POST /api/student/upload
+ * @desc    Upload Document (Single File)
+ * @access  Private/Student
+ */
 router.post('/upload', protect, upload.single('file'), uploadDocument);
 
-// @desc    Delete Specific Document
-// @access  Private/Student
+/**
+ * @route   DELETE /api/student/document/:docId
+ * @desc    Delete Specific Document
+ * @access  Private/Student
+ */
 router.delete('/document/:docId', protect, deleteDocument);
 
 module.exports = router;
