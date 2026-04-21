@@ -20,7 +20,7 @@ exports.getAdminStats = async (req, res) => {
         const totalStudents = await User.countDocuments({ role: 'student' });
         const totalUniversities = await User.countDocuments({ role: 'university' });
 
-        // 2. Pending Approvals (Student + University dono ka sum)
+        // 2. Pending Approvals
         const pendingApprovals = await User.countDocuments({
             isApproved: false,
             role: { $in: ['student', 'university'] }
@@ -56,10 +56,10 @@ exports.getAdminStats = async (req, res) => {
 
         res.json({
             totalStudents,
-            totalUniversities, // Ab ye sahi count dikhayega
+            totalUniversities,
             totalRevenue,
             pendingApprovals,
-            studentTrend: "+12%", // Aap isay bhi dynamic kar sakte hain
+            studentTrend: "+12%",
             revenueTrend: revenueTrend
         });
     } catch (err) {
@@ -75,16 +75,14 @@ exports.getAdminStats = async (req, res) => {
 exports.getAllStudents = async (req, res) => {
     try {
         const { search } = req.query;
-
-        // UPDATE: 'student' ki jagah dono roles fetch kiye taake university bhi nazar aaye
         let query = { role: { $in: ['student', 'university'] } };
 
         if (search) {
             query.$or = [
                 { name: { $regex: search, $options: 'i' } },
-                { email: { $regex: search, $options: 'i' } }, // Search by Email add kiya
+                { email: { $regex: search, $options: 'i' } },
                 { passportNumber: { $regex: search, $options: 'i' } },
-                { instituteName: { $regex: search, $options: 'i' } } // University name search
+                { instituteName: { $regex: search, $options: 'i' } }
             ];
         }
 
@@ -101,11 +99,10 @@ exports.getAllStudents = async (req, res) => {
 
 /**
  * @route   GET /api/admin/pending-users
- * @desc    Get list of all users awaiting approval (Students & Universities)
+ * @desc    Get list of all users awaiting approval
  */
 exports.getPendingUsers = async (req, res) => {
     try {
-        // Fix: Role filter hataya taake University requests bhi ayein
         const pendingUsers = await User.find({
             isApproved: false,
             role: { $in: ['student', 'university'] }
@@ -143,8 +140,71 @@ exports.approveUser = async (req, res) => {
 };
 
 /**
+ * @route   PUT /api/admin/verify-single-doc/:docId
+ * @desc    Verify a document (Smart Handler for Student ID or Document ID)
+ */
+exports.verifySingleDocument = async (req, res) => {
+    try {
+        const { docId } = req.params;
+        const { remarks, status, docIndex } = req.body || {};
+
+        // Step 1: Check if the ID is a Student ID
+        let student = await User.findById(docId);
+
+        if (student && student.documents && student.documents.length > 0) {
+            const idx = docIndex !== undefined ? parseInt(docIndex) : 0;
+
+            if (student.documents[idx]) {
+                student.documents[idx].status = status || 'Verified';
+                student.documents[idx].remarks = remarks || 'Confidence Starts Here: Document Verified.';
+                student.documents[idx].verifiedAt = new Date();
+
+                // FIXED: Agar admin ne file upload ki hai toh link save karo
+                if (req.file) {
+                    student.documents[idx].verifySlip = req.file.path;
+                }
+
+                await student.save();
+                return res.json({ success: true, msg: "Document authenticated via Student Profile", student });
+            }
+        }
+
+        // Step 2: Update by specific Document ID using $set
+        const updateData = {
+            "documents.$.status": status || 'Verified',
+            "documents.$.remarks": remarks || 'Confidence Starts Here: Document Verified.',
+            "documents.$.verifiedAt": new Date()
+        };
+
+        // FIXED: File path handling for specific Doc ID update
+        if (req.file) {
+            updateData["documents.$.verifySlip"] = req.file.path;
+        }
+
+        const updatedStudent = await User.findOneAndUpdate(
+            { "documents._id": docId },
+            { $set: updateData },
+            { new: true, returnDocument: 'after' }
+        );
+
+        if (!updatedStudent) {
+            return res.status(404).json({ success: false, msg: "Document not found in registry" });
+        }
+
+        res.json({
+            success: true,
+            msg: "Document authenticated with remarks and slip",
+            student: updatedStudent
+        });
+    } catch (err) {
+        console.error("Single Verify Error:", err.message);
+        res.status(500).json({ success: false, msg: "Server Error during verification" });
+    }
+};
+
+/**
  * @route   PUT /api/admin/verify-doc/:studentId/:docId
- * @desc    Verify document and attach screenshot
+ * @desc    Verify document and attach screenshot (Cloudinary)
  */
 exports.verifyDocument = async (req, res) => {
     try {
@@ -160,11 +220,14 @@ exports.verifyDocument = async (req, res) => {
         const doc = student.documents.id(docId);
         if (!doc) return res.status(404).json({ msg: "Document not found" });
 
-        doc.verificationImg = req.file.path; // Cloudinary or Local path
+        // FIELD CONSISTENCY: University dashboard verifySlip check kar raha hai
+        doc.verifySlip = req.file.path;
+        doc.verificationImg = req.file.path; // Old field for safety
         doc.status = "Verified";
+        doc.verifiedAt = new Date();
 
         await student.save();
-        res.json({ msg: "Document verified successfully!", student });
+        res.json({ msg: "Document verified successfully with proof!", student });
     } catch (err) {
         console.error("Verification Error:", err.message);
         res.status(500).send("Server Error during document verification");

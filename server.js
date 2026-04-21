@@ -11,6 +11,7 @@ const connectDB = require('./DB/db');
 const authRoutes = require('./Routes/auth');
 const adminRoutes = require('./Routes/adminRoutes');
 const studentRoutes = require('./Routes/studentRoutes');
+const universityRoutes = require('./Routes/universityRoutes'); // FIXED: University Routes correctly imported
 
 // 3. Connect to MongoDB
 connectDB();
@@ -34,11 +35,11 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
 
-/** * FIXED: University Verification Route alias
- * Agar aap frontend se /api/university/verify-passport hit kar rahe hain,
- * to hum studentRoutes ko hi yahan link kar rahe hain taaki 404 error khatam ho jaye.
+/** * FIXED: University Routes Mounting
+ * Pehle yahan studentRoutes alias tha, ab original universityRoutes link kar diya hai
+ * Taaki /api/university/search-student call ho sakay
  */
-app.use('/api/university', studentRoutes);
+app.use('/api/university', universityRoutes);
 
 // 6. Base Route
 app.get('/', (req, res) => {
@@ -71,5 +72,5 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`📡 Health Check: http://localhost:${PORT}/`);
-    console.log(`🛠️ University API: http://localhost:${PORT}/api/university/verify-passport`);
+    console.log(`🛠️ University API Active: http://localhost:${PORT}/api/university/search-student`);
 });
