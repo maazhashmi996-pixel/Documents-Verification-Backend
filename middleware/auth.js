@@ -22,7 +22,10 @@ exports.protect = async (req, res, next) => {
 
     // Check if no token
     if (!token) {
-        return res.status(401).json({ msg: "No token, authorization denied" });
+        return res.status(401).json({
+            success: false,
+            msg: "No token, authorization denied"
+        });
     }
 
     try {
@@ -30,28 +33,52 @@ exports.protect = async (req, res, next) => {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         /**
-         * 3. Database se user nikalna taake latest role/status check ho sakay.
-         * Note: Decoded object mein payload ka structure check karein (decoded.user.id ya decoded.id)
+         * 3. Database se user nikalna
+         * FIX: Dono scenarios handle kiye hain (decoded.id aur decoded.user.id)
          */
-        const userId = decoded.user ? decoded.user.id : decoded.id;
+        let userId;
+        if (decoded.user && decoded.user.id) {
+            userId = decoded.user.id;
+        } else if (decoded.id) {
+            userId = decoded.id;
+        } else {
+            userId = decoded.sub; // Standard JWT field for subject
+        }
+
+        if (!userId) {
+            return res.status(401).json({ success: false, msg: "Invalid token payload" });
+        }
+
         const user = await User.findById(userId).select('-password');
 
         if (!user) {
-            return res.status(401).json({ msg: "User no longer exists in our database" });
+            return res.status(401).json({
+                success: false,
+                msg: "User no longer exists in our database"
+            });
         }
 
-        // Pura user object request mein daal diya taake next middleware isay use kar sakay
+        // 4. Role Status Check (Optional but Recommended)
+        // Agar user block ho gaya ho ya account inactive ho
+        if (user.status === 'inactive') {
+            return res.status(403).json({ success: false, msg: "Your account is deactivated" });
+        }
+
+        // Pura user object request mein daal diya
         req.user = user;
         next();
     } catch (err) {
-        console.error("Auth Middleware Error:", err.message);
+        console.error("❌ Auth Middleware Error:", err.message);
 
-        // Specific error messages
+        // Specific error messages for better Frontend handling
         if (err.name === 'TokenExpiredError') {
-            return res.status(401).json({ msg: "Token has expired, please login again" });
+            return res.status(401).json({
+                success: false,
+                msg: "Token has expired, please login again"
+            });
         }
 
-        res.status(401).json({ msg: "Token is not valid" });
+        res.status(401).json({ success: false, msg: "Token is not valid" });
     }
 };
 
@@ -65,6 +92,7 @@ exports.adminOnly = (req, res, next) => {
         next();
     } else {
         return res.status(403).json({
+            success: false,
             msg: `Access denied. Role '${req.user ? req.user.role : 'unknown'}' is not authorized.`
         });
     }
