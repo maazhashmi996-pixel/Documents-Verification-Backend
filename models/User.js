@@ -31,6 +31,12 @@ const UserSchema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    // --- PORTAL SYNC FLAG ---
+    // Ye lazmi field hai jo frontend par Admin Slip show karne ke liye chahiye
+    isSlipLinked: {
+        type: Boolean,
+        default: false
+    },
     // --- PAYMENT SYSTEM ---
     isPaid: {
         type: Boolean,
@@ -66,13 +72,16 @@ const UserSchema = new mongoose.Schema({
         {
             title: { type: String },
             institute: { type: String },
-            fileUrl: { type: String },
-            verificationImg: { type: String },
+            fileUrl: { type: String }, // Student's uploaded file
+            verifySlip: { type: String, default: "" }, // Admin's uploaded slip (Cloudinary URL)
+            verificationImg: { type: String, default: "" }, // Backup URL for sync
+            remarks: { type: String, default: "" }, // Admin verification comments
             status: {
                 type: String,
                 enum: ["Pending", "Verified", "Rejected"],
                 default: "Pending"
             },
+            verifiedAt: { type: Date },
             createdAt: { type: Date, default: Date.now }
         }
     ]

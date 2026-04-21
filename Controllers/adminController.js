@@ -141,14 +141,14 @@ exports.approveUser = async (req, res) => {
 
 /**
  * @route   PUT /api/admin/verify-single-doc/:docId
- * @desc    Verify a document (Smart Handler for Student ID or Document ID)
+ * @desc    Verify a document (Smart Handler with Array Filter Fix)
  */
 exports.verifySingleDocument = async (req, res) => {
     try {
         const { docId } = req.params;
         const { remarks, status, docIndex } = req.body || {};
 
-        // Step 1: Check if the ID is a Student ID
+        // Step 1: Logic for Student ID + Index (Optional Check)
         let student = await User.findById(docId);
 
         if (student && student.documents && student.documents.length > 0) {
@@ -159,9 +159,9 @@ exports.verifySingleDocument = async (req, res) => {
                 student.documents[idx].remarks = remarks || 'Confidence Starts Here: Document Verified.';
                 student.documents[idx].verifiedAt = new Date();
 
-                // FIXED: Agar admin ne file upload ki hai toh link save karo
                 if (req.file) {
                     student.documents[idx].verifySlip = req.file.path;
+                    student.isSlipLinked = true;
                 }
 
                 await student.save();
@@ -169,22 +169,27 @@ exports.verifySingleDocument = async (req, res) => {
             }
         }
 
-        // Step 2: Update by specific Document ID using $set
+        // Step 2: Logic for specific Document ID (Using ArrayFilters for bulletproof update)
+        // Isse isSlipLinked main object level par set hoga aur verifySlip array ke andar
         const updateData = {
-            "documents.$.status": status || 'Verified',
-            "documents.$.remarks": remarks || 'Confidence Starts Here: Document Verified.',
-            "documents.$.verifiedAt": new Date()
+            "documents.$[elem].status": status || 'Verified',
+            "documents.$[elem].remarks": remarks || 'Confidence Starts Here: Document Verified.',
+            "documents.$[elem].verifiedAt": new Date(),
+            "isSlipLinked": true
         };
 
-        // FIXED: File path handling for specific Doc ID update
         if (req.file) {
-            updateData["documents.$.verifySlip"] = req.file.path;
+            updateData["documents.$[elem].verifySlip"] = req.file.path;
+            updateData["documents.$[elem].verificationImg"] = req.file.path; // Safety mapping
         }
 
         const updatedStudent = await User.findOneAndUpdate(
             { "documents._id": docId },
             { $set: updateData },
-            { new: true, returnDocument: 'after' }
+            {
+                new: true,
+                arrayFilters: [{ "elem._id": docId }]
+            }
         );
 
         if (!updatedStudent) {
@@ -220,11 +225,13 @@ exports.verifyDocument = async (req, res) => {
         const doc = student.documents.id(docId);
         if (!doc) return res.status(404).json({ msg: "Document not found" });
 
-        // FIELD CONSISTENCY: University dashboard verifySlip check kar raha hai
+        // FIELD CONSISTENCY: Synced with University Portal
         doc.verifySlip = req.file.path;
-        doc.verificationImg = req.file.path; // Old field for safety
+        doc.verificationImg = req.file.path;
         doc.status = "Verified";
         doc.verifiedAt = new Date();
+
+        student.isSlipLinked = true;
 
         await student.save();
         res.json({ msg: "Document verified successfully with proof!", student });
