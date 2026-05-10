@@ -6,13 +6,25 @@ const jwt = require('jsonwebtoken');
 // @desc    Register a User (Student/University/Admin) with Approval Logic
 exports.signup = async (req, res) => {
     try {
-        const { name, email, password, passportNumber, role, instituteName } = req.body;
+        // 1. Destructure all fields including 'phone'
+        const { name, email, phone, password, passportNumber, role, instituteName } = req.body;
 
-        // 1. Check if user already exists
+        // 2. Check if user already exists
         let user = await User.findOne({ email });
         if (user) return res.status(400).json({ msg: "User already exists" });
 
-        // 2. SINGLE ADMIN PROTOCOL
+        // --- NEW LOGIC START: Role-based Phone & Passport Validation ---
+        if (role === 'student') {
+            if (!phone || phone.trim() === "") {
+                return res.status(400).json({ msg: "Phone number is required for students" });
+            }
+            if (!passportNumber || passportNumber.trim() === "") {
+                return res.status(400).json({ msg: "Passport number is required for students" });
+            }
+        }
+        // --- NEW LOGIC END ---
+
+        // 3. SINGLE ADMIN PROTOCOL
         // System mein sirf ek hi master admin ho sakta hai
         if (role === 'admin') {
             const existingAdmin = await User.findOne({ role: 'admin' });
@@ -23,15 +35,16 @@ exports.signup = async (req, res) => {
             }
         }
 
-        // 3. Approval Status Logic
+        // 4. Approval Status Logic
         // Admin automatically 'true' hoga, Student aur University 'false' rahengy 
-        // Jab tak admin dashboard se approve nahi karega, ye login nahi kar sakty.
         const isApprovedStatus = (role === 'admin');
 
-        // 4. Create New User Instance
+        // 5. Create New User Instance
+        // Agar role student nahi hai, toh phone empty string save hogi ya undefined
         user = new User({
             name,
             email,
+            phone: role === 'student' ? phone : undefined,
             password,
             passportNumber: role === 'student' ? passportNumber : undefined,
             instituteName: role === 'university' ? instituteName : undefined,
@@ -39,11 +52,11 @@ exports.signup = async (req, res) => {
             isApproved: isApprovedStatus
         });
 
-        // 5. Hash Password
+        // 6. Hash Password
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
 
-        // 6. Save to Database
+        // 7. Save to Database
         await user.save();
 
         let successMsg = "Registration successful. Please wait for Admin approval before logging in.";
@@ -54,6 +67,10 @@ exports.signup = async (req, res) => {
 
     } catch (err) {
         console.error("Signup Error:", err.message);
+        // Detail validation error sending
+        if (err.name === 'ValidationError') {
+            return res.status(400).json({ msg: err.message });
+        }
         res.status(500).send("Server Error during signup");
     }
 };
@@ -72,7 +89,7 @@ exports.login = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ msg: "Invalid Credentials" });
 
-        //  Admin Approval Check
+        // 3. Admin Approval Check
         // Agar isApproved false hai (Student/University), toh login block kar do
         if (!user.isApproved) {
             return res.status(403).json({
@@ -88,7 +105,7 @@ exports.login = async (req, res) => {
             { expiresIn: '1d' }
         );
 
-        // 5. Success Response (Filtering sensitive data)
+        // 5. Success Response (Including phone and filtering sensitive data)
         res.json({
             token,
             user: {
@@ -96,6 +113,7 @@ exports.login = async (req, res) => {
                 name: user.name,
                 role: user.role,
                 email: user.email,
+                phone: user.phone, // Include phone in response if needed
                 isPaid: user.isPaid || false
             }
         });

@@ -3,13 +3,22 @@ const mongoose = require("mongoose");
 const UserSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true
+        required: true,
+        trim: true
     },
     email: {
         type: String,
         unique: true,
         required: true,
-        lowercase: true
+        lowercase: true,
+        trim: true
+    },
+    phone: {
+        type: String,
+        required: function () {
+            return this.role === 'student';
+        },
+        trim: true
     },
     password: {
         type: String,
@@ -18,31 +27,40 @@ const UserSchema = new mongoose.Schema({
     passportNumber: {
         type: String,
         unique: true,
-        sparse: true
+        sparse: true,
+        trim: true,
+        required: function () {
+            return this.role === 'student';
+        }
     },
     role: {
         type: String,
         enum: ["student", "admin", "university"],
         default: "student"
     },
+
     // --- ADMIN APPROVAL PROTOCOL ---
-    // Ye tab true hoga jab admin profile verify karega
     isApproved: {
         type: Boolean,
         default: false
     },
+    // Account level rejection ke liye (Frontend par show karne ke liye)
+    rejectionRemarks: {
+        type: String,
+        default: null
+    },
+
     // --- PORTAL SYNC FLAG ---
-    // Ye lazmi field hai jo frontend par Admin Slip show karne ke liye chahiye
     isSlipLinked: {
         type: Boolean,
         default: false
     },
+
     // --- PAYMENT SYSTEM ---
     isPaid: {
         type: Boolean,
         default: false
     },
-    // Naya object: Payment proof save karne ke liye
     paymentDetails: {
         transactionId: {
             type: String,
@@ -51,7 +69,7 @@ const UserSchema = new mongoose.Schema({
         proofImage: {
             type: String,
             default: ""
-        }, // Cloudinary URL for screenshot
+        },
         paymentStatus: {
             type: String,
             enum: ["None", "Pending", "Approved", "Rejected"],
@@ -64,7 +82,8 @@ const UserSchema = new mongoose.Schema({
 
     // University Specific Field
     instituteName: {
-        type: String
+        type: String,
+        trim: true
     },
 
     // --- DOCUMENTS ARRAY ---
@@ -72,10 +91,13 @@ const UserSchema = new mongoose.Schema({
         {
             title: { type: String },
             institute: { type: String },
-            fileUrl: { type: String }, // Student's uploaded file
-            verifySlip: { type: String, default: "" }, // Admin's uploaded slip (Cloudinary URL)
-            verificationImg: { type: String, default: "" }, // Backup URL for sync
-            remarks: { type: String, default: "" }, // Admin verification comments
+            fileUrl: { type: String },
+            verifySlip: { type: String, default: "" },
+            verificationImg: { type: String, default: "" },
+            remarks: {
+                type: String,
+                default: ""
+            },
             status: {
                 type: String,
                 enum: ["Pending", "Verified", "Rejected"],
@@ -84,13 +106,21 @@ const UserSchema = new mongoose.Schema({
             verifiedAt: { type: Date },
             createdAt: { type: Date, default: Date.now }
         }
-    ]
+    ],
+
+    // Account level active/inactive status
+    isActive: {
+        type: Boolean,
+        default: true
+    }
+
 }, {
     timestamps: true
 });
 
-// Optimization
+// --- OPTIMIZATION & INDEXING ---
 UserSchema.index({ role: 1, isApproved: 1 });
+UserSchema.index({ email: 1 });
 UserSchema.index({ "paymentDetails.paymentStatus": 1 });
 
 module.exports = mongoose.models.User || mongoose.model("User", UserSchema);

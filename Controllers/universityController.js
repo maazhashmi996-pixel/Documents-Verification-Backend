@@ -2,7 +2,7 @@ const User = require('../models/User');
 
 /**
  * @route   POST /api/university/search-student
- * @desc    Passport number enter karke verified documents aur admin screenshots check karna
+ * @desc    Passport number enter karke verified, received aur rejected documents check karna
  * @access  Private (Only Approved Universities)
  */
 const searchStudentByPassport = async (req, res) => {
@@ -36,7 +36,7 @@ const searchStudentByPassport = async (req, res) => {
         }
 
         // 4. Student Search: Passport number aur role 'student' hona chahiye
-        // Select mein verifySlip fields aur documents ka pura data uthaya hai
+        // Saare zaroori fields select kiye hain
         const student = await User.findOne({
             passportNumber: passportNumber.trim(),
             role: 'student'
@@ -49,27 +49,22 @@ const searchStudentByPassport = async (req, res) => {
             });
         }
 
-        // 5. Data Filtering: University ko Verified aur Received dono documents dikhana
-        /**
-         * UPDATED LOGIC:
-         * Agar Admin ne document 'Received' kar liya hai lekin abhi 'Verified' nahi kiya, 
-         * tab bhi University ko dikhna chahiye taake empty dashboard na aaye.
-         */
-        const visibleDocs = student.documents.filter(doc =>
-            doc.status === "Verified" || doc.status === "Received"
-        );
+        // 5. Data Handling (UPDATED LOGIC):
+        // Pehle yahan filter laga tha jo Rejected documents ko rok raha tha.
+        // Ab hum saare documents bhej rahe hain (Verified, Received, aur Rejected).
+        const allDocuments = student.documents;
 
         /**
          * SLIP LINK CHECK:
-         * Hum check kar rahe hain ke kya visible documents mein koi slip ya admin upload mojood hai.
-         * Is mein Admin screenshot, verification image ya specific slip name sab check ho raha hai.
+         * Hum check kar rahe hain ke kya documents mein koi slip ya admin upload mojood hai.
          */
-        const slipExists = visibleDocs.some(doc =>
+        const slipExists = allDocuments.some(doc =>
             doc.name === "verifySlip" ||
             doc.documentType === "verifySlip" ||
             doc.isAdminUploaded === true ||
             doc.verifySlip ||
-            doc.adminScreenshot
+            doc.adminScreenshot ||
+            doc.adminSlip
         );
 
         // 6. Response Alignment: Dashboard isi format ko expect kar raha hai
@@ -79,17 +74,16 @@ const searchStudentByPassport = async (req, res) => {
                 fullName: student.name,
                 email: student.email,
                 passportNumber: student.passportNumber,
-                // Ab yahan saare processed (Verified/Received) documents jayenge
-                documents: visibleDocs,
+                // Ab yahan full array jayegi bagair kisi filter ke
+                documents: allDocuments,
                 profileStatus: student.profileStatus || "Active",
                 remarks: student.remarks || "Overall student profile is active in the central registry.",
-                isAuthentic: true,
-                // Frontend ke "Slip Linked" status ke liye flag
+                isAuthentic: student.profileStatus !== "Flagged", // Agar profile flagged nahi hai toh authentic hai
                 isSlipLinked: slipExists
             },
-            message: visibleDocs.length > 0
-                ? "Processed documents found."
-                : "No verified or received documents available for this student yet."
+            message: allDocuments.length > 0
+                ? "Student records retrieved successfully."
+                : "No documents found for this student."
         });
 
     } catch (err) {

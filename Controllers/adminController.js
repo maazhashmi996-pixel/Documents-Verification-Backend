@@ -1,32 +1,28 @@
 const User = require('../models/User');
 const moment = require('moment');
 
-/**
- * @route   GET /api/admin/stats
- * @desc    VIP Dashboard Summary (Revenue, Students, Universities, Trends)
- */
+// ============================================================
+// 1. ANALYTICS & DIRECTORY ROUTES
+// ============================================================
+
 exports.getAdminStats = async (req, res) => {
     try {
         const { period } = req.query;
         let startDate;
 
-        // Filter Logic based on time period
         if (period === 'day') startDate = moment().startOf('day').toDate();
         else if (period === 'week') startDate = moment().subtract(7, 'days').startOf('day').toDate();
         else if (period === 'month') startDate = moment().subtract(30, 'days').startOf('day').toDate();
-        else startDate = new Date(0); // All time
+        else startDate = new Date(0);
 
-        // 1. Total Counts
         const totalStudents = await User.countDocuments({ role: 'student' });
         const totalUniversities = await User.countDocuments({ role: 'university' });
 
-        // 2. Pending Approvals
         const pendingApprovals = await User.countDocuments({
             isApproved: false,
             role: { $in: ['student', 'university'] }
         });
 
-        // 3. Revenue Calculation (5000 per paid student)
         const paidUsersCount = await User.countDocuments({
             role: 'student',
             isPaid: true,
@@ -34,7 +30,6 @@ exports.getAdminStats = async (req, res) => {
         });
         const totalRevenue = paidUsersCount * 5000;
 
-        // 4. Calculate Revenue Trends
         const diffDays = period === 'day' ? 1 : period === 'week' ? 7 : period === 'month' ? 30 : 0;
         const lastPeriodStart = diffDays > 0
             ? moment(startDate).subtract(diffDays, 'days').toDate()
@@ -63,15 +58,10 @@ exports.getAdminStats = async (req, res) => {
             revenueTrend: revenueTrend
         });
     } catch (err) {
-        console.error("Stats Error:", err.message);
         res.status(500).json({ msg: "Stats calculation failed", error: err.message });
     }
 };
 
-/**
- * @route   GET /api/admin/students
- * @desc    Get All Users (Students & Universities) with Search
- */
 exports.getAllStudents = async (req, res) => {
     try {
         const { search } = req.query;
@@ -86,138 +76,137 @@ exports.getAllStudents = async (req, res) => {
             ];
         }
 
-        const students = await User.find(query)
-            .select('-password')
-            .sort({ createdAt: -1 });
-
+        const students = await User.find(query).select('-password').sort({ createdAt: -1 });
         res.json(students);
     } catch (err) {
-        console.error("Fetch Students Error:", err.message);
         res.status(500).json({ msg: "Error fetching students" });
     }
 };
 
-/**
- * @route   GET /api/admin/pending-users
- * @desc    Get list of all users awaiting approval
- */
+exports.getStudentDetails = async (req, res) => {
+    try {
+        const student = await User.findById(req.params.id).select('-password');
+        if (!student) return res.status(404).json({ msg: "Student details not found" });
+        res.json(student);
+    } catch (err) {
+        res.status(500).json({ msg: "Error fetching profile details" });
+    }
+};
+
+// ============================================================
+// 2. USER MANAGEMENT (APPROVE, REJECT, DELETE & STATUS)
+// ============================================================
+
 exports.getPendingUsers = async (req, res) => {
     try {
         const pendingUsers = await User.find({
             isApproved: false,
             role: { $in: ['student', 'university'] }
-        })
-            .select('-password')
-            .sort({ createdAt: -1 });
-
+        }).select('-password').sort({ createdAt: -1 });
         res.json(pendingUsers);
     } catch (err) {
-        console.error("Pending Users Error:", err.message);
         res.status(500).json({ msg: "Error fetching pending users" });
     }
 };
 
-/**
- * @route   PUT /api/admin/approve/:id
- * @desc    Approve student or university account
- */
 exports.approveUser = async (req, res) => {
     try {
         const user = await User.findById(req.params.id);
         if (!user) return res.status(404).json({ msg: "User not found" });
-
         user.isApproved = true;
+        user.rejectionRemarks = null;
         await user.save();
-
-        res.json({
-            msg: `${user.name || user.instituteName} (${user.role}) approved successfully.`,
-            user: { id: user._id, isApproved: user.isApproved }
-        });
+        res.json({ msg: "Approved successfully", isApproved: true });
     } catch (err) {
-        console.error("Approval Error:", err.message);
-        res.status(500).send("Server Error during approval");
+        res.status(500).json({ msg: "Server Error during approval" });
     }
 };
 
-/**
- * @route   PUT /api/admin/verify-single-doc/:docId
- * @desc    Verify a document (Smart Handler with Array Filter Fix)
- */
+exports.rejectUser = async (req, res) => {
+    try {
+        const { remarks } = req.body;
+        if (!remarks) return res.status(400).json({ msg: "Remarks are required for rejection" });
+
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        user.isApproved = false;
+        user.rejectionRemarks = remarks;
+        await user.save();
+        res.json({ msg: "User rejected successfully", remarks: user.rejectionRemarks });
+    } catch (err) {
+        res.status(500).json({ msg: "Error rejecting user" });
+    }
+};
+
+exports.toggleUserStatus = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        user.isActive = !user.isActive;
+        await user.save();
+        res.json({ msg: `User is ${user.isActive ? 'Active' : 'Inactive'}`, isActive: user.isActive });
+    } catch (err) {
+        res.status(500).json({ msg: "Error updating user status" });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    try {
+        const user = await User.findByIdAndDelete(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        res.json({ msg: "User record deleted permanently" });
+    } catch (err) {
+        res.status(500).json({ msg: "Error deleting user" });
+    }
+};
+
+// ============================================================
+// 3. DOCUMENT VERIFICATION & SINGLE DOC DELETION
+// ============================================================
+
 exports.verifySingleDocument = async (req, res) => {
     try {
-        const { docId } = req.params;
-        const { remarks, status, docIndex } = req.body || {};
+        const { studentId, docId } = req.params;
+        const { remarks, status } = req.body;
 
-        // Step 1: Logic for Student ID + Index (Optional Check)
-        let student = await User.findById(docId);
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ success: false, msg: "Student profile not found" });
 
-        if (student && student.documents && student.documents.length > 0) {
-            const idx = docIndex !== undefined ? parseInt(docIndex) : 0;
-
-            if (student.documents[idx]) {
-                student.documents[idx].status = status || 'Verified';
-                student.documents[idx].remarks = remarks || 'Confidence Starts Here: Document Verified.';
-                student.documents[idx].verifiedAt = new Date();
-
-                if (req.file) {
-                    student.documents[idx].verifySlip = req.file.path;
-                    student.isSlipLinked = true;
-                }
-
-                await student.save();
-                return res.json({ success: true, msg: "Document authenticated via Student Profile", student });
-            }
+        let targetDoc;
+        if (!isNaN(docId)) {
+            const idx = parseInt(docId);
+            targetDoc = student.documents[idx];
+        } else {
+            targetDoc = student.documents.id(docId);
         }
 
-        // Step 2: Logic for specific Document ID (Using ArrayFilters for bulletproof update)
-        // Isse isSlipLinked main object level par set hoga aur verifySlip array ke andar
-        const updateData = {
-            "documents.$[elem].status": status || 'Verified',
-            "documents.$[elem].remarks": remarks || 'Confidence Starts Here: Document Verified.',
-            "documents.$[elem].verifiedAt": new Date(),
-            "isSlipLinked": true
-        };
+        if (!targetDoc) return res.status(404).json({ success: false, msg: "Specific document not found" });
+
+        targetDoc.status = status || 'Verified';
+        targetDoc.remarks = remarks || (status === 'Rejected' ? 'Document Rejected' : 'Verified');
+        targetDoc.verifiedAt = new Date();
 
         if (req.file) {
-            updateData["documents.$[elem].verifySlip"] = req.file.path;
-            updateData["documents.$[elem].verificationImg"] = req.file.path; // Safety mapping
+            targetDoc.verifySlip = req.file.path;
+            targetDoc.verificationImg = req.file.path;
         }
 
-        const updatedStudent = await User.findOneAndUpdate(
-            { "documents._id": docId },
-            { $set: updateData },
-            {
-                new: true,
-                arrayFilters: [{ "elem._id": docId }]
-            }
-        );
+        student.isSlipLinked = true;
+        await student.save();
 
-        if (!updatedStudent) {
-            return res.status(404).json({ success: false, msg: "Document not found in registry" });
-        }
+        res.json({ success: true, msg: `Document ${targetDoc.status} Successfully`, student });
 
-        res.json({
-            success: true,
-            msg: "Document authenticated with remarks and slip",
-            student: updatedStudent
-        });
     } catch (err) {
         console.error("Single Verify Error:", err.message);
-        res.status(500).json({ success: false, msg: "Server Error during verification" });
+        res.status(500).json({ success: false, msg: "Server error: " + err.message });
     }
 };
 
-/**
- * @route   PUT /api/admin/verify-doc/:studentId/:docId
- * @desc    Verify document and attach screenshot (Cloudinary)
- */
 exports.verifyDocument = async (req, res) => {
     try {
         const { studentId, docId } = req.params;
-
-        if (!req.file) {
-            return res.status(400).json({ msg: "Verification screenshot is required" });
-        }
+        if (!req.file) return res.status(400).json({ msg: "Screenshot required" });
 
         const student = await User.findById(studentId);
         if (!student) return res.status(404).json({ msg: "Student not found" });
@@ -225,18 +214,62 @@ exports.verifyDocument = async (req, res) => {
         const doc = student.documents.id(docId);
         if (!doc) return res.status(404).json({ msg: "Document not found" });
 
-        // FIELD CONSISTENCY: Synced with University Portal
         doc.verifySlip = req.file.path;
         doc.verificationImg = req.file.path;
         doc.status = "Verified";
         doc.verifiedAt = new Date();
-
         student.isSlipLinked = true;
 
         await student.save();
-        res.json({ msg: "Document verified successfully with proof!", student });
+        res.json({ msg: "Verified successfully!", student });
     } catch (err) {
-        console.error("Verification Error:", err.message);
-        res.status(500).send("Server Error during document verification");
+        res.status(500).send("Server Error");
+    }
+};
+
+exports.deleteStudentDocument = async (req, res) => {
+    try {
+        const { studentId, docId } = req.params;
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ msg: "Student not found" });
+
+        if (!isNaN(docId)) {
+            student.documents.splice(parseInt(docId), 1);
+        } else {
+            student.documents = student.documents.filter(d => d._id.toString() !== docId);
+        }
+
+        await student.save();
+        res.json({ msg: "Document deleted", documents: student.documents });
+
+    } catch (err) {
+        res.status(500).json({ msg: "Server error", error: err.message });
+    }
+};
+
+// ============================================================
+// 4. FINANCIAL & FEE MANAGEMENT
+// ============================================================
+
+exports.getAllFeeRecords = async (req, res) => {
+    try {
+        const users = await User.find({ role: 'student', isPaid: true })
+            .select('name email amount createdAt').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ msg: "Error fetching records" });
+    }
+};
+
+exports.updateFeeStatus = async (req, res) => {
+    try {
+        const { isPaid } = req.body;
+        const student = await User.findById(req.params.studentId);
+        if (!student) return res.status(404).json({ msg: "Student not found" });
+        student.isPaid = isPaid;
+        await student.save();
+        res.json({ msg: "Fee status updated", isPaid: student.isPaid });
+    } catch (err) {
+        res.status(500).json({ msg: "Error updating fee" });
     }
 };

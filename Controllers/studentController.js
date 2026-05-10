@@ -40,7 +40,6 @@ exports.submitPaymentProof = async (req, res) => {
             submittedAt: Date.now()
         };
 
-        // Note: isPaid abhi false hi rahega jab tak Admin approve na karde
         await user.save();
 
         res.json({
@@ -55,7 +54,7 @@ exports.submitPaymentProof = async (req, res) => {
 
 /**
  * @route    POST /api/student/upload
- * @desc     Document upload (Sirf tabhi jab isPaid true ho)
+ * @desc     Document upload (Payment check temporary hata di gayi hai)
  */
 exports.uploadDocument = async (req, res) => {
     try {
@@ -64,12 +63,13 @@ exports.uploadDocument = async (req, res) => {
 
         if (!user) return res.status(404).json({ msg: "User not found." });
 
-        // 1. Check if Account is Approved
+        // 1. Check if Account is Approved (Keeping this for security)
         if (!user.isApproved) {
             return res.status(403).json({ msg: "Your account is pending admin approval." });
         }
 
-        // 2. Check if Payment is Approved by Admin
+        // 2. TEMPORARY BYPASS: Payment check ko comment out kar diya hai taaki free upload ho sakay
+        /*
         if (!user.isPaid) {
             let statusMsg = "Please pay 5000 PKR fees before uploading.";
             if (user.paymentDetails.paymentStatus === 'Pending') {
@@ -77,6 +77,7 @@ exports.uploadDocument = async (req, res) => {
             }
             return res.status(403).json({ msg: statusMsg });
         }
+        */
 
         if (!req.file) {
             return res.status(400).json({ msg: "Please upload a document file." });
@@ -133,7 +134,6 @@ exports.verifyPassportNumber = async (req, res) => {
             return res.status(400).json({ success: false, msg: "Passport number is required" });
         }
 
-        // --- FIXED: Ab ye database se user ka pura data nikalega ---
         const student = await User.findOne({ passportNumber: passport }).select('-password');
 
         if (!student) {
@@ -143,16 +143,15 @@ exports.verifyPassportNumber = async (req, res) => {
             });
         }
 
-        // Pura record construct kar rahe hain jo University Dashboard ko chahiye
         const record = {
             passportNumber: student.passportNumber,
-            fullName: student.name, // Frontend expects fullName
+            fullName: student.name,
             university: student.university || "Qual Check Verified Institute",
-            isAuthentic: student.isApproved, // Agar admin ne approve kiya hai to authentic hai
+            isAuthentic: student.isApproved,
             isPaid: student.isPaid,
-            documents: student.documents, // Ye array ab Frontend ko milega
+            documents: student.documents,
             remarks: student.adminRemarks || "Credentials verified and active in the global registry.",
-            paymentDetails: student.paymentDetails // Slip verification ke liye
+            paymentDetails: student.paymentDetails
         };
 
         res.status(200).json({

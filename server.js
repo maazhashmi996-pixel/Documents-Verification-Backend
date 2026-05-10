@@ -1,7 +1,8 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const morgan = require('morgan'); // Request logging ke liye
+const morgan = require('morgan');
+const path = require('path');
 
 // 1. Load Environment Variables
 dotenv.config();
@@ -11,17 +12,33 @@ const connectDB = require('./DB/db');
 const authRoutes = require('./Routes/auth');
 const adminRoutes = require('./Routes/adminRoutes');
 const studentRoutes = require('./Routes/studentRoutes');
-const universityRoutes = require('./Routes/universityRoutes'); // FIXED: University Routes correctly imported
+const universityRoutes = require('./Routes/universityRoutes');
 
 // 3. Connect to MongoDB
 connectDB();
 
 const app = express();
 
-// 4. Middlewares
-app.use(cors());
-app.use(morgan('dev')); // Console mein API requests track karne ke liye
-app.use(express.json({ limit: '10mb' })); // File upload support ke liye size barha di
+// 4. Middlewares (Optimized for Production)
+// Railway aur external domains ke liye CORS configuration
+const allowedOrigins = [
+    'http://localhost:3000',
+    process.env.FRONTEND_URL // Railway environment variable se dynamic domain pick karega
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS (Qual Check Security)'));
+        }
+    },
+    credentials: true
+}));
+
+app.use(morgan('dev'));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Debugging logs (Development only)
@@ -36,41 +53,44 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/student', studentRoutes);
 
 /** * FIXED: University Routes Mounting
- * Pehle yahan studentRoutes alias tha, ab original universityRoutes link kar diya hai
- * Taaki /api/university/search-student call ho sakay
+ * Ensure /api/university/search-student is accessible
  */
 app.use('/api/university', universityRoutes);
 
-// 6. Base Route
+// 6. Base Route / Health Check
 app.get('/', (req, res) => {
     res.json({
         status: "Success",
-        message: 'Qual Check CRM API is running...',
-        version: "1.0.0"
+        message: 'Qual Check CRM API is running smoothly...',
+        environment: process.env.NODE_ENV || 'development',
+        version: "1.0.1"
     });
 });
 
-// 7. Global Error Handler (Ye buhat zaroori hai 500 errors pakarne ke liye)
+// 7. Global Error Handler
 app.use((err, req, res, next) => {
     console.error("🔥 Global Error Log:", err.stack);
 
-    // Agar Multer ka error ho
     if (err.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ msg: "File size too large (Max 10MB)" });
+        return res.status(400).json({ success: false, msg: "File size too large (Max 10MB)" });
     }
 
     res.status(err.status || 500).json({
         success: false,
         msg: err.message || "Internal Server Error",
-        // Development mein error detail dikhayega, production mein nahi
+        // Production mein stack trace hide rakha hai security ke liye
         error: process.env.NODE_ENV === 'development' ? err.stack : {}
     });
 });
 
-// 8. Start Server
+// 8. Start Server (Configured for Railway/Cloud)
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+
+// '0.0.0.0' is important for cloud deployment to accept external requests
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📡 Health Check: http://localhost:${PORT}/`);
-    console.log(`🛠️ University API Active: http://localhost:${PORT}/api/university/search-student`);
+    if (process.env.NODE_ENV !== 'production') {
+        console.log(`📡 Health Check: http://localhost:${PORT}/`);
+        console.log(`🛠️ University API Active: http://localhost:${PORT}/api/university/search-student`);
+    }
 });
