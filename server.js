@@ -25,6 +25,7 @@ console.log("🌐 NODE_ENV:", process.env.NODE_ENV);
 console.log("🔑 MONGODB_URI:", process.env.MONGODB_URI ? "FOUND (Length: " + process.env.MONGODB_URI.length + ")" : "NOT FOUND ❌");
 console.log("🖼️ CLOUDINARY_NAME:", process.env.CLOUDINARY_CLOUD_NAME ? "FOUND ✅" : "MISSING ❌");
 console.log("📍 PORT VARIABLE:", process.env.PORT || "NOT SET (Using Default 5000)");
+console.log("📡 FRONTEND_URL:", process.env.FRONTEND_URL || "NOT SET ❌");
 console.log("------------------------------------------");
 
 // 3. Connect to MongoDB
@@ -32,7 +33,6 @@ connectDB();
 
 const app = express();
 
-// 4. Middlewares
 const allowedOrigins = [
     'http://localhost:3000',
     process.env.FRONTEND_URL
@@ -40,14 +40,20 @@ const allowedOrigins = [
 
 app.use(cors({
     origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl)
         if (!origin || allowedOrigins.indexOf(origin) !== -1) {
             callback(null, true);
         } else {
+            console.log("❌ Blocked by CORS Origin:", origin);
             callback(new Error('Not allowed by CORS (Qual Check Security)'));
         }
     },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
     credentials: true
 }));
+
+app.options('*', cors());
 
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
@@ -66,7 +72,7 @@ app.get('/', (req, res) => {
         message: 'Qual Check CRM API is running smoothly...',
         environment: process.env.NODE_ENV || 'development',
         db_status: process.env.MONGODB_URI ? "Configured" : "Missing",
-        version: "1.0.2"
+        version: "1.0.3"
     });
 });
 
@@ -83,8 +89,7 @@ app.use((err, req, res, next) => {
     });
 });
 
-// 8. Start Server
-// Railway dynamically assigns a port, priority given to process.env.PORT
+
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, '0.0.0.0', () => {
