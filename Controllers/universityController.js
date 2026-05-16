@@ -35,10 +35,10 @@ const searchStudentByPassport = async (req, res) => {
             });
         }
 
-        // 4. Student Search: Passport number aur role 'student' hona chahiye
-        // Saare zaroori fields select kiye hain
+        // 4. Student Search: Case-Insensitive Exact Match using Regex
+        // Taake agar DB mein small 'abc365336' ho aur search capital 'ABC365336' ho, toh perfect match ho jaye
         const student = await User.findOne({
-            passportNumber: passportNumber.trim(),
+            passportNumber: { $regex: new RegExp("^" + passportNumber.trim() + "$", "i") },
             role: 'student'
         }).select('name email passportNumber documents profileStatus remarks');
 
@@ -50,8 +50,7 @@ const searchStudentByPassport = async (req, res) => {
         }
 
         // 5. Data Handling (UPDATED LOGIC):
-        // Pehle yahan filter laga tha jo Rejected documents ko rok raha tha.
-        // Ab hum saare documents bhej rahe hain (Verified, Received, aur Rejected).
+        // Saare documents bhej rahe hain (Verified, Received, aur Rejected).
         const allDocuments = student.documents;
 
         /**
@@ -73,8 +72,7 @@ const searchStudentByPassport = async (req, res) => {
             data: {
                 fullName: student.name,
                 email: student.email,
-                passportNumber: student.passportNumber,
-                // Ab yahan full array jayegi bagair kisi filter ke
+                passportNumber: student.passportNumber, // Yeh DB wala original format hi bhejega
                 documents: allDocuments,
                 profileStatus: student.profileStatus || "Active",
                 remarks: student.remarks || "Overall student profile is active in the central registry.",
@@ -109,7 +107,7 @@ const getUniversityProfile = async (req, res) => {
     }
 };
 
-// Sab se important part: Functions ko object format mein export karna
+// Functions ko object format mein export karna
 module.exports = {
     searchStudentByPassport,
     getUniversityProfile
