@@ -1,7 +1,6 @@
 const User = require('../models/User');
 const moment = require('moment');
 
-// ============================================================
 
 exports.getAdminStats = async (req, res) => {
     try {
