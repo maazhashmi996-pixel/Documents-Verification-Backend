@@ -60,7 +60,7 @@ exports.protect = async (req, res, next) => {
 
         // 4. Role Status Check (Optional but Recommended)
         // Agar user block ho gaya ho ya account inactive ho
-        if (user.status === 'inactive') {
+        if (user.isActive === false || user.status === 'inactive') {
             return res.status(403).json({ success: false, msg: "Your account is deactivated" });
         }
 
@@ -96,4 +96,14 @@ exports.adminOnly = (req, res, next) => {
             msg: `Access denied. Role '${req.user ? req.user.role : 'unknown'}' is not authorized.`
         });
     }
+};
+/**
+ * @desc    Student Only Middleware
+ */
+exports.studentOnly = (req, res, next) => {
+    if (req.user && req.user.role === 'student') return next();
+    return res.status(403).json({
+        success: false,
+        msg: "Access denied. This area is for student accounts only."
+    });
 };

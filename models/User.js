@@ -92,6 +92,7 @@ const UserSchema = new mongoose.Schema({
             title: { type: String },
             institute: { type: String },
             fileUrl: { type: String },
+            verifyCode: { type: String },
             verifySlip: { type: String, default: "" },
             verificationImg: { type: String, default: "" },
             remarks: {
@@ -121,6 +122,7 @@ const UserSchema = new mongoose.Schema({
 // --- OPTIMIZATION & INDEXING ---
 UserSchema.index({ role: 1, isApproved: 1 });
 UserSchema.index({ email: 1 });
+UserSchema.index({ "documents.verifyCode": 1 }, { sparse: true });
 UserSchema.index({ "paymentDetails.paymentStatus": 1 });
 
 module.exports = mongoose.models.User || mongoose.model("User", UserSchema);

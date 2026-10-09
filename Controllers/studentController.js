@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const User = require('../models/User');
 
 /**
@@ -63,10 +64,7 @@ exports.uploadDocument = async (req, res) => {
 
         if (!user) return res.status(404).json({ msg: "User not found." });
 
-        // 1. Check if Account is Approved (Keeping this for security)
-        if (!user.isApproved) {
-            return res.status(403).json({ msg: "Your account is pending admin approval." });
-        }
+        // Students no longer need admin approval: their email is verified at signup.
 
         // 2. TEMPORARY BYPASS: Payment check ko comment out kar diya hai taaki free upload ho sakay
         /*
@@ -163,5 +161,49 @@ exports.verifyPassportNumber = async (req, res) => {
     } catch (err) {
         console.error("Passport Verification Error:", err.message);
         res.status(500).json({ success: false, msg: "University Database Server Error" });
+    }
+};
+
+/**
+ * @route    POST /api/student/document/:docId/share
+ * @desc     Create (or return) the public verification code for one document
+ */
+exports.shareDocument = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const doc = user.documents.id(req.params.docId);
+        if (!doc) return res.status(404).json({ msg: "Document not found" });
+
+        if (!doc.verifyCode) {
+            doc.verifyCode = crypto.randomBytes(9).toString('base64url'); // 12 URL-safe characters
+            await user.save();
+        }
+        res.json({ code: doc.verifyCode, status: doc.status });
+    } catch (err) {
+        console.error("Share Error:", err.message);
+        res.status(500).json({ msg: "Could not create the verification link." });
+    }
+};
+
+/**
+ * @route    DELETE /api/student/document/:docId/share
+ * @desc     Turn the public link off again
+ */
+exports.unshareDocument = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const doc = user.documents.id(req.params.docId);
+        if (!doc) return res.status(404).json({ msg: "Document not found" });
+
+        doc.verifyCode = undefined;
+        await user.save();
+        res.json({ msg: "Public link disabled." });
+    } catch (err) {
+        console.error("Unshare Error:", err.message);
+        res.status(500).json({ msg: "Could not disable the link." });
     }
 };
