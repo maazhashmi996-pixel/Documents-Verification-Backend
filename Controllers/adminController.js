@@ -1,5 +1,6 @@
 const User = require('../models/User');
 const moment = require('moment');
+const { isConfigured, sendDocumentStatusEmail } = require('../utils/mailer');
 
 
 exports.getAdminStats = async (req, res) => {
@@ -15,9 +16,10 @@ exports.getAdminStats = async (req, res) => {
         const totalStudents = await User.countDocuments({ role: 'student' });
         const totalUniversities = await User.countDocuments({ role: 'university' });
 
+        // Only universities wait for approval now (students verify by email code)
         const pendingApprovals = await User.countDocuments({
             isApproved: false,
-            role: { $in: ['student', 'university'] }
+            role: 'university'
         });
 
         const paidUsersCount = await User.countDocuments({
@@ -98,7 +100,7 @@ exports.getPendingUsers = async (req, res) => {
     try {
         const pendingUsers = await User.find({
             isApproved: false,
-            role: { $in: ['student', 'university'] }
+            role: 'university'
         }).select('-password').sort({ createdAt: -1 });
         res.json(pendingUsers);
     } catch (err) {
@@ -110,6 +112,7 @@ exports.approveUser = async (req, res) => {
     try {
         const user = await User.findById(req.params.id);
         if (!user) return res.status(404).json({ msg: "User not found" });
+        if (user.role !== 'university') return res.status(400).json({ msg: "Only university accounts need approval" });
         user.isApproved = true;
         user.rejectionRemarks = null;
         await user.save();
@@ -126,6 +129,7 @@ exports.rejectUser = async (req, res) => {
 
         const user = await User.findById(req.params.id);
         if (!user) return res.status(404).json({ msg: "User not found" });
+        if (user.role !== 'university') return res.status(400).json({ msg: "Only university accounts can be rejected" });
 
         user.isApproved = false;
         user.rejectionRemarks = remarks;
@@ -162,6 +166,18 @@ exports.deleteUser = async (req, res) => {
 // 3. DOCUMENT VERIFICATION & SINGLE DOC DELETION
 // ============================================================
 
+// Best-effort email to the student; never blocks or fails the admin's action
+const notifyStudent = (student, doc) => {
+    if (!isConfigured() || !['Verified', 'Rejected'].includes(doc.status)) return;
+    sendDocumentStatusEmail({
+        to: student.email,
+        name: student.name,
+        title: doc.title,
+        status: doc.status,
+        remarks: doc.remarks
+    }).catch((e) => console.error('Status email failed:', e.message));
+};
+
 exports.verifySingleDocument = async (req, res) => {
     try {
         const { studentId, docId } = req.params;
@@ -191,6 +207,7 @@ exports.verifySingleDocument = async (req, res) => {
 
         student.isSlipLinked = true;
         await student.save();
+        notifyStudent(student, targetDoc);
 
         res.json({ success: true, msg: `Document ${targetDoc.status} Successfully`, student });
 
@@ -218,6 +235,7 @@ exports.verifyDocument = async (req, res) => {
         student.isSlipLinked = true;
 
         await student.save();
+        notifyStudent(student, doc);
         res.json({ msg: "Verified successfully!", student });
     } catch (err) {
         res.status(500).send("Server Error");

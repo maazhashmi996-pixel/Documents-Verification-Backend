@@ -3,6 +3,8 @@ const dotenv = require('dotenv');
 const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 // ==========================
 // LOAD ENV VARIABLES
@@ -18,6 +20,7 @@ const authRoutes = require('./Routes/auth');
 const adminRoutes = require('./Routes/adminRoutes');
 const studentRoutes = require('./Routes/studentRoutes');
 const universityRoutes = require('./Routes/universityRoutes');
+const publicRoutes = require('./Routes/publicRoutes');
 
 // ==========================
 // DEBUG LOGS
@@ -53,10 +56,25 @@ console.log(
 
 console.log("------------------------------------------");
 
-connectDB();
+if (require.main === module) connectDB();
 
 
 const app = express();
+
+// Behind Render/Vercel/Nginx the real client IP comes from the proxy (needed for rate limiting)
+app.set('trust proxy', 1);
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// Brute-force protection for login / signup / OTP / reset, and for the public verification page
+const makeLimiter = (limit) => rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+    message: { success: false, msg: 'Too many requests. Please wait a few minutes and try again.' }
+});
 
 
 const allowedOrigins = [
@@ -120,13 +138,15 @@ app.use(express.urlencoded({
 }));
 
 
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', makeLimiter(100), authRoutes);
 
 app.use('/api/admin', adminRoutes);
 
 app.use('/api/student', studentRoutes);
 
 app.use('/api/university', universityRoutes);
+
+app.use('/api/public', makeLimiter(200), publicRoutes);
 
 
 app.get('/', (req, res) => {
@@ -179,7 +199,7 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, '0.0.0.0', () => {
+if (require.main === module) app.listen(PORT, '0.0.0.0', () => {
 
     console.log(
         `✅ SERVER SUCCESS: Running on port ${PORT}`
@@ -190,3 +210,5 @@ app.listen(PORT, '0.0.0.0', () => {
     );
 
 });
+
+module.exports = app;

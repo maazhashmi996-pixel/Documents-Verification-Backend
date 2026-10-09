@@ -38,7 +38,7 @@ const searchStudentByPassport = async (req, res) => {
         // 4. Student Search: Case-Insensitive Exact Match using Regex
         // Taake agar DB mein small 'abc365336' ho aur search capital 'ABC365336' ho, toh perfect match ho jaye
         const student = await User.findOne({
-            passportNumber: { $regex: new RegExp("^" + passportNumber.trim() + "$", "i") },
+            passportNumber: { $regex: new RegExp("^" + String(passportNumber).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i") },
             role: 'student'
         }).select('name email passportNumber documents profileStatus remarks');
 
