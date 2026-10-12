@@ -126,13 +126,21 @@ exports.deleteDocument = async (req, res) => {
  */
 exports.verifyPassportNumber = async (req, res) => {
     try {
+        if (req.user?.role !== 'university') {
+            return res.status(403).json({ success: false, msg: 'Only university accounts can access passport verification.' });
+        }
+        const requestingUniversity = await User.findById(req.user._id).select('role isApproved');
+        if (!requestingUniversity || !requestingUniversity.isApproved) {
+            return res.status(403).json({ success: false, msg: 'University approval is required before searching student records.' });
+        }
         const { passport } = req.query;
 
         if (!passport) {
             return res.status(400).json({ success: false, msg: "Passport number is required" });
         }
 
-        const student = await User.findOne({ passportNumber: passport }).select('-password');
+        const escapedPassport = String(passport).trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const student = await User.findOne({ role: 'student', passportNumber: { $regex: new RegExp(`^${escapedPassport}$`, 'i') } }).select('name passportNumber isApproved documents instituteName');
 
         if (!student) {
             return res.status(404).json({
@@ -144,12 +152,10 @@ exports.verifyPassportNumber = async (req, res) => {
         const record = {
             passportNumber: student.passportNumber,
             fullName: student.name,
-            university: student.university || "Qual Check Verified Institute",
+            university: student.university || student.instituteName || null,
             isAuthentic: student.isApproved,
-            isPaid: student.isPaid,
             documents: student.documents,
-            remarks: student.adminRemarks || "Credentials verified and active in the global registry.",
-            paymentDetails: student.paymentDetails
+            remarks: student.adminRemarks || "Student records retrieved from the verification registry."
         };
 
         res.status(200).json({

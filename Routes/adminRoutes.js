@@ -91,7 +91,7 @@ router.delete(
     '/verify-single-doc/delete/:studentId/:docIndex',
     protect,
     adminOnly,
-    adminController.verifySingleDocument
+    adminController.deleteStudentDocument
 );
 
 /**
@@ -131,5 +131,11 @@ router.get('/fee-records', protect, adminOnly, adminController.getAllFeeRecords)
  * @route   PUT /api/admin/update-fee/:studentId
  */
 router.put('/update-fee/:studentId', protect, adminOnly, adminController.updateFeeStatus);
+
+
+// 5. ADMIN PROFILE & SECURITY SETTINGS
+router.get('/settings', protect, adminOnly, adminController.getAdminSettings);
+router.put('/settings/profile', protect, adminOnly, adminController.updateAdminProfile);
+router.put('/settings/password', protect, adminOnly, adminController.changeAdminPassword);
 
 module.exports = router;
