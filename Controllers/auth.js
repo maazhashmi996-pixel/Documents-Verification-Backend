@@ -32,9 +32,6 @@ exports.signup = async (req, res) => {
         const email = (req.body.email || '').toLowerCase().trim();
 
         if (!ROLES.includes(role)) return res.status(400).json({ msg: 'Please choose a valid account type.' });
-        if (role === 'admin') {
-            return res.status(403).json({ msg: 'Public administrator registration is disabled. Provision an administrator using the controlled server setup command.' });
-        }
         if (!name?.trim() || !email || !password) return res.status(400).json({ msg: 'Name, email and password are required.' });
         if (password.length < 6) return res.status(400).json({ msg: 'Password must be at least 6 characters.' });
 
@@ -133,12 +130,6 @@ exports.verifyOtp = async (req, res) => {
             await pending.save();
             const left = MAX_ATTEMPTS - pending.attempts;
             return res.status(400).json({ msg: `Incorrect code. ${left} attempt${left === 1 ? '' : 's'} left.` });
-        }
-
-        // A previously issued public admin OTP must not create a new administrator.
-        if (pending.role === 'admin') {
-            await pending.deleteOne();
-            return res.status(403).json({ msg: 'Public administrator registration is disabled. Contact the system owner.' });
         }
 
         // Code is correct: re-check availability, then create the real account
