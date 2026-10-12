@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const dotenv = require('dotenv');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -56,7 +57,7 @@ console.log(
 
 console.log("------------------------------------------");
 
-if (require.main === module) connectDB();
+
 
 
 const app = express();
@@ -155,9 +156,7 @@ app.get('/', (req, res) => {
         status: "Success",
         message: 'Qual Check CRM API is running smoothly...',
         environment: process.env.NODE_ENV || 'development',
-        db_status: process.env.MONGODB_URI
-            ? "Configured"
-            : "Missing",
+        db_status: mongoose.connection.readyState === 1 ? 'Connected' : 'Unavailable',
         version: "1.0.4"
     });
 
@@ -199,16 +198,18 @@ app.use((err, req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 
-if (require.main === module) app.listen(PORT, '0.0.0.0', () => {
-
-    console.log(
-        `✅ SERVER SUCCESS: Running on port ${PORT}`
-    );
-
-    console.log(
-        `📡 Health Check Link: http://localhost:${PORT}/`
-    );
-
-});
+if (require.main === module) {
+    connectDB()
+        .then(() => {
+            app.listen(PORT, '0.0.0.0', () => {
+                console.log(`Server listening on port ${PORT}`);
+                console.log(`Health check: http://localhost:${PORT}/`);
+            });
+        })
+        .catch((err) => {
+            console.error('Database connection failed; server will not start:', err.message);
+            process.exit(1);
+        });
+}
 
 module.exports = app;

@@ -1,0 +1,2112 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+Controllers/
+  adminController.js
+  auth.js
+  publicController.js
+  studentController.js
+  universityController.js
+DB/
+  db.js
+middleware/
+  auth.js
+  cloudinaryConfig.js
+models/
+  PasswordReset.js
+  PendingSignup.js
+  User.js
+Routes/
+  adminRoutes.js
+  auth.js
+  publicRoutes.js
+  studentRoutes.js
+  universityRoutes.js
+utils/
+  mailer.js
+  otp.js
+.gitignore
+package.json
+server.js
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="Controllers/publicController.js">
+const User = require('../models/User');
+
+// "Ahmed Khan" -> "A**** K***"
+const maskName = (name = '') =>
+    name.split(/\s+/).filter(Boolean)
+        .map((w) => w[0] + '*'.repeat(Math.min(Math.max(w.length - 1, 1), 5)))
+        .join(' ');
+
+/**
+ * @route   GET /api/public/verify/:code
+ * @desc    Anyone holding the link/QR can check one document. No login.
+ *          Only safe fields are returned (no file URLs, email, passport or phone).
+ */
+exports.verifyByCode = async (req, res) => {
+    try {
+        const code = String(req.params.code || '').trim();
+        if (!/^[A-Za-z0-9_-]{8,40}$/.test(code)) {
+            return res.status(404).json({ success: false, msg: 'This verification link is not valid.' });
+        }
+
+        const student = await User.findOne({ 'documents.verifyCode': code, role: 'student' });
+        const doc = student && student.documents.find((d) => d.verifyCode === code);
+
+        if (!student || !doc || student.isActive === false) {
+            return res.status(404).json({ success: false, msg: 'This verification link is not valid or was turned off.' });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                holder: maskName(student.name),
+                title: doc.title,
+                institute: doc.institute,
+                status: doc.status,
+                remarks: doc.status === 'Pending' ? '' : doc.remarks || '',
+                hasAttestation: Boolean(doc.verificationImg || doc.verifySlip),
+                submittedAt: doc.createdAt,
+                verifiedAt: doc.status === 'Pending' ? null : doc.verifiedAt || null
+            }
+        });
+    } catch (err) {
+        console.error('Public Verify Error:', err.message);
+        res.status(500).json({ success: false, msg: 'Server error' });
+    }
+};
+</file>
+
+<file path="models/PasswordReset.js">
+const mongoose = require('mongoose');
+
+// Temporary record for "forgot password". Removed automatically after expiresAt (TTL index).
+const PasswordResetSchema = new mongoose.Schema({
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    otpHash: { type: String, required: true },
+    attempts: { type: Number, default: 0 },
+    lastSentAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, required: true, index: { expires: 0 } }
+}, { timestamps: true });
+
+module.exports = mongoose.models.PasswordReset || mongoose.model('PasswordReset', PasswordResetSchema);
+</file>
+
+<file path="models/PendingSignup.js">
+const mongoose = require('mongoose');
+
+// Temporary record kept only until the email verification code is entered.
+// MongoDB removes it automatically once expiresAt passes (TTL index).
+const PendingSignupSchema = new mongoose.Schema({
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    role: { type: String, enum: ['student', 'admin'], required: true },
+    name: { type: String, required: true, trim: true },
+    phone: { type: String, trim: true },
+    passportNumber: { type: String, trim: true },
+    password: { type: String, required: true }, // already hashed
+    otpHash: { type: String, required: true },
+    attempts: { type: Number, default: 0 },
+    lastSentAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, required: true, index: { expires: 0 } }
+}, { timestamps: true });
+
+module.exports = mongoose.models.PendingSignup || mongoose.model('PendingSignup', PendingSignupSchema);
+</file>
+
+<file path="Routes/publicRoutes.js">
+const express = require('express');
+const router = express.Router();
+const { verifyByCode } = require('../Controllers/publicController');
+
+router.get('/verify/:code', verifyByCode);
+
+module.exports = router;
+</file>
+
+<file path="utils/mailer.js">
+const nodemailer = require('nodemailer');
+
+let transporter;
+
+const isConfigured = () => Boolean(process.env.SMTP_USER && process.env.SMTP_PASS);
+
+const getTransporter = () => {
+    if (transporter) return transporter;
+    if (!isConfigured()) {
+        throw new Error('Email is not configured. Set SMTP_USER and SMTP_PASS in the backend .env file.');
+    }
+    const port = Number(process.env.SMTP_PORT) || 465;
+    transporter = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port,
+        secure: port === 465, // 465 = SSL, 587 = STARTTLS
+        auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+    return transporter;
+};
+
+function escapeHtml(str = '') {
+    return String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+const shell = (inner) => `
+<div style="background:#f4f6fa;padding:32px 16px;font-family:Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px;margin:0 auto;background:#ffffff;border:1px solid #e4e8f0;border-radius:18px;overflow:hidden;">
+    <div style="background:#0f1b33;padding:24px 32px;">
+      <div style="color:#d9b36a;font-size:20px;font-weight:700;letter-spacing:.5px;">Qual Check</div>
+      <div style="color:#9fb0cf;font-size:12px;margin-top:4px;">Document Verification Portal</div>
+    </div>
+    <div style="padding:32px;">${inner}</div>
+  </div>
+</div>`;
+
+const send = async ({ to, subject, text, html }) => {
+    const from = process.env.MAIL_FROM || `"Qual Check" <${process.env.SMTP_USER}>`;
+    await getTransporter().sendMail({ from, to, subject, text, html });
+};
+
+const PURPOSE_TEXT = {
+    signup: (role) => `Use this code to finish creating your ${role === 'admin' ? 'Admin' : 'Student'} account.`,
+    reset: () => 'Use this code to reset your password.'
+};
+
+exports.isConfigured = isConfigured;
+
+exports.sendOtpEmail = async ({ to, name, otp, role, minutes = 10, purpose = 'signup' }) => {
+    const lead = (PURPOSE_TEXT[purpose] || PURPOSE_TEXT.signup)(role);
+    await send({
+        to,
+        subject: `${otp} is your Qual Check verification code`,
+        text: `Hello ${name}, your Qual Check verification code is ${otp}. It expires in ${minutes} minutes.`,
+        html: shell(`
+      <p style="margin:0 0 8px;color:#0f1b33;font-size:16px;">Hello ${escapeHtml(name)},</p>
+      <p style="margin:0 0 24px;color:#4b5876;font-size:14px;line-height:1.6;">${lead}</p>
+      <div style="text-align:center;background:#f7f3ea;border:1px solid #ecdfc0;border-radius:14px;padding:20px;">
+        <span style="font-size:34px;font-weight:700;letter-spacing:10px;color:#0f1b33;">${otp}</span>
+      </div>
+      <p style="margin:24px 0 0;color:#4b5876;font-size:13px;line-height:1.6;">
+        The code expires in ${minutes} minutes. If you didn't request it, you can ignore this email.
+      </p>`)
+    });
+};
+
+// Tells a student that one of their documents was verified or rejected
+exports.sendDocumentStatusEmail = async ({ to, name, title, status, remarks }) => {
+    const ok = status === 'Verified';
+    const badge = ok ? '#1e6b5a' : '#b4233c';
+    await send({
+        to,
+        subject: `Your document "${title}" was ${status.toLowerCase()}`,
+        text: `Hello ${name}, your document "${title}" is now ${status}.${remarks ? ' Remarks: ' + remarks : ''}`,
+        html: shell(`
+      <p style="margin:0 0 8px;color:#0f1b33;font-size:16px;">Hello ${escapeHtml(name)},</p>
+      <p style="margin:0 0 20px;color:#4b5876;font-size:14px;line-height:1.6;">There is an update on one of your documents.</p>
+      <div style="border:1px solid #e4e8f0;border-radius:14px;padding:18px;">
+        <div style="color:#0f1b33;font-size:15px;font-weight:700;">${escapeHtml(title)}</div>
+        <div style="margin-top:10px;"><span style="display:inline-block;background:${badge};color:#fff;font-size:12px;font-weight:700;padding:5px 12px;border-radius:999px;">${status}</span></div>
+        ${remarks ? `<p style="margin:14px 0 0;color:#4b5876;font-size:13px;line-height:1.6;">Remarks: ${escapeHtml(remarks)}</p>` : ''}
+      </div>
+      <p style="margin:24px 0 0;color:#4b5876;font-size:13px;">Sign in to your student dashboard to see the details.</p>`)
+    });
+};
+</file>
+
+<file path="utils/otp.js">
+const crypto = require('crypto');
+
+exports.OTP_MINUTES = 10;
+exports.MAX_ATTEMPTS = 5;
+exports.RESEND_SECONDS = 60;
+
+exports.generateOtp = () => String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+
+exports.hashOtp = (email, otp, purpose = 'signup') =>
+    crypto.createHmac('sha256', process.env.JWT_SECRET || 'otp-secret').update(`${purpose}:${email}:${otp}`).digest('hex');
+
+exports.safeEqual = (a, b) => {
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
+};
+</file>
+
+<file path="middleware/cloudinaryConfig.js">
+const cloudinary = require('cloudinary').v2;
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const multer = require('multer');
+
+// Cloudinary Configuration
+cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+const storage = new CloudinaryStorage({
+    cloudinary: cloudinary,
+    params: async (req, file) => {
+        // File extension nikalna
+        const fileExt = file.originalname.split('.').pop().toLowerCase();
+
+        // Logical check: Agar Image ya PDF hai toh 'image' treat ho sakti hai, 
+        // lekin Word/Excel ke liye Cloudinary ko 'raw' ya 'auto' chahiye hota hai.
+        return {
+            folder: 'student_docs',
+            resource_type: 'auto', // Sabse important line: har tarah ki file support karne ke liye
+            public_id: `${Date.now()}-${file.originalname.split('.')[0].replace(/\s+/g, '_')}`,
+            // Word/Excel files ke liye 'format' parameter ko skip karna behtar hota hai
+            // Cloudinary original extension khud handle kar leta hai 'auto' mode mein.
+        };
+    }
+});
+
+// Multer implementation with extra security
+const upload = multer({
+    storage: storage,
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB Limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = [
+            'image/jpeg',
+            'image/png',
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' // .xlsx
+        ];
+
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('File type not supported! Please upload Image, PDF, Word, or Excel.'), false);
+        }
+    }
+});
+
+module.exports = upload;
+</file>
+
+<file path="Routes/auth.js">
+const express = require('express');
+const router = express.Router();
+const { signup, verifyOtp, resendOtp, login, forgotPassword, resetPassword } = require('../Controllers/auth');
+
+router.post('/signup', signup);
+router.post('/verify-otp', verifyOtp);
+router.post('/resend-otp', resendOtp);
+router.post('/login', login);
+router.post('/forgot-password', forgotPassword);
+router.post('/reset-password', resetPassword);
+
+module.exports = router;
+</file>
+
+<file path=".gitignore">
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+node_modules
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+</file>
+
+<file path="Routes/universityRoutes.js">
+const express = require('express');
+const router = express.Router();
+
+/**
+ * FIXED: Middleware import fix
+ * Aapki middleware file mein 'protect' naam ka function hai, 
+ * isliye hum usay destructuring se nikaal rahe hain.
+ */
+const { protect } = require('../middleware/auth');
+
+/**
+ * @import University Controller
+ */
+const universityController = require('../Controllers/universityController');
+
+/**
+ * @route   GET /api/university/profile
+ * @desc    University profile aur approval status check karne ke liye
+ * @access  Private
+ */
+router.get('/profile', protect, universityController.getUniversityProfile);
+
+/**
+ * @route   POST /api/university/search-student
+ * @desc    Passport number ke zariye student ka verified data search karna
+ * @access  Private (Only Approved Universities)
+ */
+router.post('/search-student', protect, universityController.searchStudentByPassport);
+
+module.exports = router;
+</file>
+
+<file path="DB/db.js">
+const mongoose = require('mongoose');
+
+const connectDB = async () => {
+    // Pehle check karein ke variable mil raha hai ya nahi
+    console.log("🔍 Env Check - MONGODB_URI:", process.env.MONGODB_URI ? "Found ✅" : "NOT FOUND ❌");
+
+    try {
+        if (!process.env.MONGODB_URI) {
+            throw new Error("MONGODB_URI is missing from Environment Variables");
+        }
+
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log("✅ MongoDB Connected Successfully!");
+
+        // One-time cleanup: students who were waiting for admin approval are now treated as approved
+        const User = require('../models/User');
+        const migrated = await User.updateMany(
+            { role: 'student', isApproved: false, rejectionRemarks: null },
+            { $set: { isApproved: true } }
+        );
+        if (migrated.modifiedCount) console.log(`✅ ${migrated.modifiedCount} pending student(s) marked as verified`);
+    } catch (err) {
+        console.error("🔥 Connection Error:", err.message);
+        // Server ko crash na hone den taake aap logs dekh saken
+        // process.exit(1); 
+    }
+};
+
+module.exports = connectDB;
+</file>
+
+<file path="middleware/auth.js">
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+/**
+ * @desc    Protect Middleware (Token Verify karne ke liye)
+ * @purpose Har protected route se pehle check karega ke user logged in hai ya nahi
+ */
+exports.protect = async (req, res, next) => {
+    let token;
+
+    // 1. Check for token in different headers (Standard and Custom)
+    if (
+        req.headers.authorization &&
+        req.headers.authorization.startsWith('Bearer')
+    ) {
+        // Authorization: Bearer <token>
+        token = req.headers.authorization.split(' ')[1];
+    } else if (req.header('x-auth-token')) {
+        // x-auth-token: <token>
+        token = req.header('x-auth-token');
+    }
+
+    // Check if no token
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            msg: "No token, authorization denied"
+        });
+    }
+
+    try {
+        // 2. Verify token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        /**
+         * 3. Database se user nikalna
+         * FIX: Dono scenarios handle kiye hain (decoded.id aur decoded.user.id)
+         */
+        let userId;
+        if (decoded.user && decoded.user.id) {
+            userId = decoded.user.id;
+        } else if (decoded.id) {
+            userId = decoded.id;
+        } else {
+            userId = decoded.sub; // Standard JWT field for subject
+        }
+
+        if (!userId) {
+            return res.status(401).json({ success: false, msg: "Invalid token payload" });
+        }
+
+        const user = await User.findById(userId).select('-password');
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                msg: "User no longer exists in our database"
+            });
+        }
+
+        // 4. Role Status Check (Optional but Recommended)
+        // Agar user block ho gaya ho ya account inactive ho
+        if (user.isActive === false || user.status === 'inactive') {
+            return res.status(403).json({ success: false, msg: "Your account is deactivated" });
+        }
+
+        // Pura user object request mein daal diya
+        req.user = user;
+        next();
+    } catch (err) {
+        console.error("❌ Auth Middleware Error:", err.message);
+
+        // Specific error messages for better Frontend handling
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                msg: "Token has expired, please login again"
+            });
+        }
+
+        res.status(401).json({ success: false, msg: "Token is not valid" });
+    }
+};
+
+/**
+ * @desc    Admin Only Middleware
+ * @purpose Sirf admin role waale users ko access dena
+ */
+exports.adminOnly = (req, res, next) => {
+    // req.user humein upar waale 'protect' middleware se milta hai
+    if (req.user && req.user.role === 'admin') {
+        next();
+    } else {
+        return res.status(403).json({
+            success: false,
+            msg: `Access denied. Role '${req.user ? req.user.role : 'unknown'}' is not authorized.`
+        });
+    }
+};
+/**
+ * @desc    Student Only Middleware
+ */
+exports.studentOnly = (req, res, next) => {
+    if (req.user && req.user.role === 'student') return next();
+    return res.status(403).json({
+        success: false,
+        msg: "Access denied. This area is for student accounts only."
+    });
+};
+</file>
+
+<file path="Controllers/studentController.js">
+const crypto = require('crypto');
+const User = require('../models/User');
+
+/**
+ * @route    GET /api/student/dashboard
+ * @desc     Student ka profile aur documents ka data dekhna
+ */
+exports.getStudentDashboard = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        res.json(user);
+    } catch (err) {
+        console.error("Dashboard Error:", err.message);
+        res.status(500).json({ msg: "Server Error" });
+    }
+};
+
+/**
+ * @route    POST /api/student/submit-payment
+ * @desc     Student payment proof (Screenshot + TID) submit karega
+ * @access   Private/Student
+ */
+exports.submitPaymentProof = async (req, res) => {
+    try {
+        const { transactionId } = req.body;
+        const proofImage = req.file ? req.file.path : null; // Cloudinary URL
+
+        if (!transactionId || !proofImage) {
+            return res.status(400).json({ msg: "Please provide Transaction ID and Screenshot proof." });
+        }
+
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        // Update Payment Details for Admin Review
+        user.paymentDetails = {
+            transactionId,
+            proofImage,
+            paymentStatus: 'Pending',
+            submittedAt: Date.now()
+        };
+
+        await user.save();
+
+        res.json({
+            msg: "Payment proof submitted! Please wait for Admin approval.",
+            paymentStatus: user.paymentDetails.paymentStatus
+        });
+    } catch (err) {
+        console.error("Payment Proof Error:", err.message);
+        res.status(500).json({ msg: "Server Error" });
+    }
+};
+
+/**
+ * @route    POST /api/student/upload
+ * @desc     Document upload (Payment check temporary hata di gayi hai)
+ */
+exports.uploadDocument = async (req, res) => {
+    try {
+        const { title, institute } = req.body;
+        const user = await User.findById(req.user.id);
+
+        if (!user) return res.status(404).json({ msg: "User not found." });
+
+        // Students no longer need admin approval: their email is verified at signup.
+
+        // 2. TEMPORARY BYPASS: Payment check ko comment out kar diya hai taaki free upload ho sakay
+        /*
+        if (!user.isPaid) {
+            let statusMsg = "Please pay 5000 PKR fees before uploading.";
+            if (user.paymentDetails.paymentStatus === 'Pending') {
+                statusMsg = "Your payment is currently being verified by Admin. Please wait.";
+            }
+            return res.status(403).json({ msg: statusMsg });
+        }
+        */
+
+        if (!req.file) {
+            return res.status(400).json({ msg: "Please upload a document file." });
+        }
+
+        const newDoc = {
+            title: title || "Untitled Document",
+            institute: institute || "Not Specified",
+            fileUrl: req.file.path,
+            status: 'Pending',
+            createdAt: new Date()
+        };
+
+        user.documents.push(newDoc);
+        await user.save();
+
+        res.json({ msg: "Document uploaded successfully!", document: newDoc });
+    } catch (err) {
+        console.error("❌ Upload Error:", err);
+        res.status(500).json({ msg: "Internal Server Error" });
+    }
+};
+
+/**
+ * @route    DELETE /api/student/document/:docId
+ * @desc     Student document delete karega
+ */
+exports.deleteDocument = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        user.documents = user.documents.filter(
+            doc => doc._id.toString() !== req.params.docId
+        );
+
+        await user.save();
+        res.json({ msg: "Document removed successfully." });
+    } catch (err) {
+        console.error("Delete Error:", err.message);
+        res.status(500).json({ msg: "Server Error" });
+    }
+};
+
+/**
+ * @route    GET /api/student/verify-passport
+ * @desc     Verify Passport from University Database (REAL DB FETCH)
+ */
+exports.verifyPassportNumber = async (req, res) => {
+    try {
+        const { passport } = req.query;
+
+        if (!passport) {
+            return res.status(400).json({ success: false, msg: "Passport number is required" });
+        }
+
+        const student = await User.findOne({ passportNumber: passport }).select('-password');
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                msg: "No record found in secure database. Please check the passport number."
+            });
+        }
+
+        const record = {
+            passportNumber: student.passportNumber,
+            fullName: student.name,
+            university: student.university || "Qual Check Verified Institute",
+            isAuthentic: student.isApproved,
+            isPaid: student.isPaid,
+            documents: student.documents,
+            remarks: student.adminRemarks || "Credentials verified and active in the global registry.",
+            paymentDetails: student.paymentDetails
+        };
+
+        res.status(200).json({
+            success: true,
+            msg: "Passport record decrypted successfully",
+            data: record
+        });
+
+    } catch (err) {
+        console.error("Passport Verification Error:", err.message);
+        res.status(500).json({ success: false, msg: "University Database Server Error" });
+    }
+};
+
+/**
+ * @route    POST /api/student/document/:docId/share
+ * @desc     Create (or return) the public verification code for one document
+ */
+exports.shareDocument = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const doc = user.documents.id(req.params.docId);
+        if (!doc) return res.status(404).json({ msg: "Document not found" });
+
+        if (!doc.verifyCode) {
+            doc.verifyCode = crypto.randomBytes(9).toString('base64url'); // 12 URL-safe characters
+            await user.save();
+        }
+        res.json({ code: doc.verifyCode, status: doc.status });
+    } catch (err) {
+        console.error("Share Error:", err.message);
+        res.status(500).json({ msg: "Could not create the verification link." });
+    }
+};
+
+/**
+ * @route    DELETE /api/student/document/:docId/share
+ * @desc     Turn the public link off again
+ */
+exports.unshareDocument = async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+
+        const doc = user.documents.id(req.params.docId);
+        if (!doc) return res.status(404).json({ msg: "Document not found" });
+
+        doc.verifyCode = undefined;
+        await user.save();
+        res.json({ msg: "Public link disabled." });
+    } catch (err) {
+        console.error("Unshare Error:", err.message);
+        res.status(500).json({ msg: "Could not disable the link." });
+    }
+};
+</file>
+
+<file path="Controllers/universityController.js">
+const User = require('../models/User');
+
+/**
+ * @route   POST /api/university/search-student
+ * @desc    Passport number enter karke verified, received aur rejected documents check karna
+ * @access  Private (Only Approved Universities)
+ */
+const searchStudentByPassport = async (req, res) => {
+    try {
+        // 1. Role Check: Sirf university hi search kar sakti hai
+        if (req.user.role !== 'university') {
+            return res.status(403).json({
+                success: false,
+                msg: "Access denied. Only Universities can access this search."
+            });
+        }
+
+        // 2. Approval Check: Kya Admin ne is university ko approve kiya hai?
+        const university = await User.findById(req.user.id);
+        if (!university || !university.isApproved) {
+            return res.status(403).json({
+                success: false,
+                msg: "Your university account is pending admin approval. You cannot search yet."
+            });
+        }
+
+        // Frontend agar GET bhej raha hai toh query se lega, agar POST toh body se
+        const passportNumber = req.body.passportNumber || req.query.passportNumber || req.body.searchQuery;
+
+        // 3. Input Validation
+        if (!passportNumber) {
+            return res.status(400).json({
+                success: false,
+                msg: "Passport number is required for search."
+            });
+        }
+
+        // 4. Student Search: Case-Insensitive Exact Match using Regex
+        // Taake agar DB mein small 'abc365336' ho aur search capital 'ABC365336' ho, toh perfect match ho jaye
+        const student = await User.findOne({
+            passportNumber: { $regex: new RegExp("^" + String(passportNumber).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "$", "i") },
+            role: 'student'
+        }).select('name email passportNumber documents profileStatus remarks');
+
+        if (!student) {
+            return res.status(404).json({
+                success: false,
+                msg: "No student found with this Passport Number."
+            });
+        }
+
+        // 5. Data Handling (UPDATED LOGIC):
+        // Saare documents bhej rahe hain (Verified, Received, aur Rejected).
+        const allDocuments = student.documents;
+
+        /**
+         * SLIP LINK CHECK:
+         * Hum check kar rahe hain ke kya documents mein koi slip ya admin upload mojood hai.
+         */
+        const slipExists = allDocuments.some(doc =>
+            doc.name === "verifySlip" ||
+            doc.documentType === "verifySlip" ||
+            doc.isAdminUploaded === true ||
+            doc.verifySlip ||
+            doc.adminScreenshot ||
+            doc.adminSlip
+        );
+
+        // 6. Response Alignment: Dashboard isi format ko expect kar raha hai
+        res.json({
+            success: true,
+            data: {
+                fullName: student.name,
+                email: student.email,
+                passportNumber: student.passportNumber, // Yeh DB wala original format hi bhejega
+                documents: allDocuments,
+                profileStatus: student.profileStatus || "Active",
+                remarks: student.remarks || "Overall student profile is active in the central registry.",
+                isAuthentic: student.profileStatus !== "Flagged", // Agar profile flagged nahi hai toh authentic hai
+                isSlipLinked: slipExists
+            },
+            message: allDocuments.length > 0
+                ? "Student records retrieved successfully."
+                : "No documents found for this student."
+        });
+
+    } catch (err) {
+        console.error("❌ University Search Error:", err.message);
+        res.status(500).json({ success: false, msg: "Server Error" });
+    }
+};
+
+/**
+ * @route   GET /api/university/profile
+ * @desc    University apna approval status aur profile dekh sakay
+ */
+const getUniversityProfile = async (req, res) => {
+    try {
+        const university = await User.findById(req.user.id).select('-password');
+        if (!university) {
+            return res.status(404).json({ success: false, msg: "University not found" });
+        }
+        res.json(university);
+    } catch (err) {
+        console.error("❌ Profile Fetch Error:", err.message);
+        res.status(500).json({ success: false, msg: "Server Error" });
+    }
+};
+
+// Functions ko object format mein export karna
+module.exports = {
+    searchStudentByPassport,
+    getUniversityProfile
+};
+</file>
+
+<file path="Routes/studentRoutes.js">
+const express = require('express');
+const router = express.Router();
+
+// --- MIDDLEWARES ---
+const { protect, studentOnly } = require('../middleware/auth');
+const upload = require('../middleware/cloudinaryConfig');
+
+// --- CONTROLLERS ---
+const {
+    uploadDocument,
+    getStudentDashboard,
+    submitPaymentProof,
+    deleteDocument,
+    verifyPassportNumber, // Naya controller function university data ke liye
+    shareDocument,
+    unshareDocument
+} = require('../Controllers/studentController');
+
+// ============================================================
+// STUDENT PORTAL ROUTES
+// ============================================================
+
+/**
+ * @route   GET /api/student/dashboard
+ * @desc    Get Student Dashboard Data (Profile, Docs Status)
+ * @access  Private/Student
+ */
+router.get('/dashboard', protect, studentOnly, getStudentDashboard);
+
+/**
+ * @route   GET /api/student/verify-passport
+ * @desc    Verify Passport from University Database
+ * @access  Private/Student
+ * @query   ?passport=123456
+ */
+router.get('/verify-passport', protect, verifyPassportNumber);
+
+/**
+ * @route   POST /api/student/submit-payment
+ * @desc    Handle Student Payment Proof Submission
+ * @access  Private/Student
+ */
+router.post('/submit-payment', protect, studentOnly, upload.single('file'), submitPaymentProof);
+
+/**
+ * @route   POST /api/student/upload
+ * @desc    Upload Document (Single File)
+ * @access  Private/Student
+ */
+router.post('/upload', protect, studentOnly, upload.single('file'), uploadDocument);
+
+/**
+ * @route   DELETE /api/student/document/:docId
+ * @desc    Delete Specific Document
+ * @access  Private/Student
+ */
+router.delete('/document/:docId', protect, studentOnly, deleteDocument);
+
+// Public verification link (QR) for one document
+router.post('/document/:docId/share', protect, studentOnly, shareDocument);
+router.delete('/document/:docId/share', protect, studentOnly, unshareDocument);
+
+module.exports = router;
+</file>
+
+<file path="Controllers/auth.js">
+const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const PendingSignup = require('../models/PendingSignup');
+const PasswordReset = require('../models/PasswordReset');
+const { sendOtpEmail } = require('../utils/mailer');
+
+const ROLES = ['student', 'university', 'admin'];
+const { OTP_MINUTES, MAX_ATTEMPTS, RESEND_SECONDS, generateOtp, hashOtp, safeEqual } = require('../utils/otp');
+
+// Shared checks used both when the code is requested and when the account is finally created
+async function checkAvailability({ email, role, passportNumber }) {
+    if (await User.findOne({ email })) {
+        return { status: 400, msg: 'An account with this email already exists.' };
+    }
+    if (role === 'student' && passportNumber && await User.findOne({ passportNumber })) {
+        return { status: 400, msg: 'This passport number is already registered.' };
+    }
+    if (role === 'admin' && await User.findOne({ role: 'admin' })) {
+        return { status: 403, msg: 'Admin registration is locked. An admin already exists in the system.' };
+    }
+    return null;
+}
+
+// @route   POST /api/auth/signup
+// @desc    Student/Admin: validate, email a 6-digit code (account is NOT created yet)
+//          University: created directly, waits for admin approval
+exports.signup = async (req, res) => {
+    try {
+        const { name, phone, password, passportNumber, role, instituteName } = req.body;
+        const email = (req.body.email || '').toLowerCase().trim();
+
+        if (!ROLES.includes(role)) return res.status(400).json({ msg: 'Please choose a valid account type.' });
+        if (!name?.trim() || !email || !password) return res.status(400).json({ msg: 'Name, email and password are required.' });
+        if (password.length < 6) return res.status(400).json({ msg: 'Password must be at least 6 characters.' });
+
+        if (role === 'student') {
+            if (!phone?.trim()) return res.status(400).json({ msg: 'Phone number is required for students.' });
+            if (!passportNumber?.trim()) return res.status(400).json({ msg: 'Passport number is required for students.' });
+        }
+
+        const cleanPassport = role === 'student' ? passportNumber.trim().toUpperCase() : undefined;
+
+        const blocked = await checkAvailability({ email, role, passportNumber: cleanPassport });
+        if (blocked) return res.status(blocked.status).json({ msg: blocked.msg });
+
+        const hashedPassword = await bcrypt.hash(password, await bcrypt.genSalt(10));
+
+        // ---------- UNIVERSITY: no email code, admin approves ----------
+        if (role === 'university') {
+            await User.create({
+                name: name.trim(),
+                email,
+                password: hashedPassword,
+                instituteName: instituteName?.trim() || name.trim(),
+                role: 'university',
+                isApproved: false
+            });
+            return res.status(201).json({
+                requiresOtp: false,
+                msg: 'University registration request sent to Admin. Waiting for approval.'
+            });
+        }
+
+        // ---------- STUDENT / ADMIN: email verification ----------
+        const otp = generateOtp();
+        await PendingSignup.findOneAndUpdate(
+            { email },
+            {
+                email,
+                role,
+                name: name.trim(),
+                phone: role === 'student' ? phone.trim() : undefined,
+                passportNumber: cleanPassport,
+                password: hashedPassword,
+                otpHash: hashOtp(email, otp),
+                attempts: 0,
+                lastSentAt: new Date(),
+                expiresAt: new Date(Date.now() + OTP_MINUTES * 60 * 1000)
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        try {
+            await sendOtpEmail({ to: email, name: name.trim(), otp, role, minutes: OTP_MINUTES });
+        } catch (mailErr) {
+            console.error('Mail Error:', mailErr.message);
+            await PendingSignup.deleteOne({ email });
+            return res.status(500).json({ msg: 'We could not send the verification email. Please check the email address and try again.' });
+        }
+
+        res.status(200).json({
+            requiresOtp: true,
+            email,
+            expiresInSeconds: OTP_MINUTES * 60,
+            resendAfterSeconds: RESEND_SECONDS,
+            msg: `We sent a 6-digit code to ${email}.`
+        });
+    } catch (err) {
+        console.error('Signup Error:', err.message);
+        if (err.name === 'ValidationError') return res.status(400).json({ msg: err.message });
+        if (err.code === 11000) return res.status(400).json({ msg: 'An account with these details already exists.' });
+        res.status(500).json({ msg: 'Server error during signup.' });
+    }
+};
+
+// @route   POST /api/auth/verify-otp
+// @desc    Check the code and only then create the account
+exports.verifyOtp = async (req, res) => {
+    try {
+        const email = (req.body.email || '').toLowerCase().trim();
+        const otp = String(req.body.otp || '').trim();
+
+        if (!email || !/^\d{6}$/.test(otp)) return res.status(400).json({ msg: 'Enter the 6-digit code.' });
+
+        const pending = await PendingSignup.findOne({ email });
+        if (!pending || pending.expiresAt < new Date()) {
+            if (pending) await pending.deleteOne();
+            return res.status(400).json({ msg: 'This code has expired. Please sign up again.', expired: true });
+        }
+
+        if (pending.attempts >= MAX_ATTEMPTS) {
+            await pending.deleteOne();
+            return res.status(429).json({ msg: 'Too many wrong attempts. Please sign up again.', expired: true });
+        }
+
+        if (!safeEqual(pending.otpHash, hashOtp(email, otp))) {
+            pending.attempts += 1;
+            await pending.save();
+            const left = MAX_ATTEMPTS - pending.attempts;
+            return res.status(400).json({ msg: `Incorrect code. ${left} attempt${left === 1 ? '' : 's'} left.` });
+        }
+
+        // Code is correct: re-check availability, then create the real account
+        const blocked = await checkAvailability({ email, role: pending.role, passportNumber: pending.passportNumber });
+        if (blocked) {
+            await pending.deleteOne();
+            return res.status(blocked.status).json({ msg: blocked.msg });
+        }
+
+        await User.create({
+            name: pending.name,
+            email: pending.email,
+            phone: pending.phone,
+            passportNumber: pending.passportNumber,
+            password: pending.password,
+            role: pending.role,
+            isApproved: true // email verification replaces admin approval
+        });
+        await pending.deleteOne();
+
+        res.status(201).json({
+            msg: pending.role === 'admin'
+                ? 'Admin account created. You can sign in now.'
+                : 'Email verified. Your student account is ready.'
+        });
+    } catch (err) {
+        console.error('Verify OTP Error:', err.message);
+        if (err.code === 11000) return res.status(400).json({ msg: 'An account with these details already exists.' });
+        res.status(500).json({ msg: 'Server error during verification.' });
+    }
+};
+
+// @route   POST /api/auth/resend-otp
+exports.resendOtp = async (req, res) => {
+    try {
+        const email = (req.body.email || '').toLowerCase().trim();
+        const pending = await PendingSignup.findOne({ email });
+        if (!pending) return res.status(400).json({ msg: 'Signup session not found. Please sign up again.', expired: true });
+
+        const waited = (Date.now() - pending.lastSentAt.getTime()) / 1000;
+        if (waited < RESEND_SECONDS) {
+            return res.status(429).json({ msg: `Please wait ${Math.ceil(RESEND_SECONDS - waited)}s before requesting a new code.` });
+        }
+
+        const otp = generateOtp();
+        pending.otpHash = hashOtp(email, otp);
+        pending.attempts = 0;
+        pending.lastSentAt = new Date();
+        pending.expiresAt = new Date(Date.now() + OTP_MINUTES * 60 * 1000);
+        await pending.save();
+
+        await sendOtpEmail({ to: email, name: pending.name, otp, role: pending.role, minutes: OTP_MINUTES });
+        res.json({ msg: 'A new code has been sent.', expiresInSeconds: OTP_MINUTES * 60, resendAfterSeconds: RESEND_SECONDS });
+    } catch (err) {
+        console.error('Resend OTP Error:', err.message);
+        res.status(500).json({ msg: 'Could not send the code. Please try again.' });
+    }
+};
+
+// @route   POST /api/auth/login
+// @desc    Login for ONE role only: a student cannot use the admin card and so on
+exports.login = async (req, res) => {
+    try {
+        const { password, role } = req.body;
+        const email = (req.body.email || '').toLowerCase().trim();
+
+        if (!ROLES.includes(role)) return res.status(400).json({ msg: 'Please sign in from one of the login cards.' });
+
+        const user = await User.findOne({ email });
+        if (!user) return res.status(400).json({ msg: 'Invalid Credentials' });
+
+        const isMatch = await bcrypt.compare(password || '', user.password);
+        if (!isMatch) return res.status(400).json({ msg: 'Invalid Credentials' });
+
+        // Role lock: the account must belong to the card it is used on
+        if (user.role !== role) {
+            return res.status(403).json({
+                msg: `This is a ${user.role} account. Please sign in using the ${user.role} login.`
+            });
+        }
+
+        if (user.isActive === false) {
+            return res.status(403).json({ msg: 'Your account has been suspended. Please contact the admin.' });
+        }
+
+        // Only universities still wait for admin approval
+        if (user.role === 'university' && !user.isApproved) {
+            return res.status(403).json({
+                msg: user.rejectionRemarks
+                    ? `Your registration was rejected: ${user.rejectionRemarks}`
+                    : 'Your university account is pending admin approval.'
+            });
+        }
+
+        const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+        res.json({
+            token,
+            user: {
+                id: user._id,
+                name: user.name,
+                role: user.role,
+                email: user.email,
+                phone: user.phone,
+                isPaid: user.isPaid || false
+            }
+        });
+    } catch (err) {
+        console.error('Login Error:', err.message);
+        res.status(500).json({ msg: 'Server error during login.' });
+    }
+};
+
+// @route   POST /api/auth/forgot-password
+// @desc    Email a reset code. Always answers the same way so nobody can probe which emails exist.
+exports.forgotPassword = async (req, res) => {
+    const generic = {
+        msg: 'If an account exists for this email, a reset code has been sent.',
+        expiresInSeconds: OTP_MINUTES * 60,
+        resendAfterSeconds: RESEND_SECONDS
+    };
+    try {
+        const email = (req.body.email || '').toLowerCase().trim();
+        const { role } = req.body;
+        if (!email || !ROLES.includes(role)) return res.status(400).json({ msg: 'Email and account type are required.' });
+
+        const user = await User.findOne({ email });
+        if (!user || user.role !== role || user.isActive === false) return res.json(generic);
+
+        const existing = await PasswordReset.findOne({ email });
+        if (existing && (Date.now() - existing.lastSentAt.getTime()) / 1000 < RESEND_SECONDS) return res.json(generic);
+
+        const otp = generateOtp();
+        await PasswordReset.findOneAndUpdate(
+            { email },
+            {
+                email,
+                otpHash: hashOtp(email, otp, 'reset'),
+                attempts: 0,
+                lastSentAt: new Date(),
+                expiresAt: new Date(Date.now() + OTP_MINUTES * 60 * 1000)
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
+        try {
+            await sendOtpEmail({ to: email, name: user.name, otp, role, minutes: OTP_MINUTES, purpose: 'reset' });
+        } catch (mailErr) {
+            console.error('Mail Error:', mailErr.message);
+            await PasswordReset.deleteOne({ email });
+            return res.status(500).json({ msg: 'We could not send the email right now. Please try again later.' });
+        }
+        res.json(generic);
+    } catch (err) {
+        console.error('Forgot Password Error:', err.message);
+        res.status(500).json({ msg: 'Server error. Please try again.' });
+    }
+};
+
+// @route   POST /api/auth/reset-password
+exports.resetPassword = async (req, res) => {
+    try {
+        const email = (req.body.email || '').toLowerCase().trim();
+        const otp = String(req.body.otp || '').trim();
+        const { role, newPassword } = req.body;
+
+        if (!email || !ROLES.includes(role)) return res.status(400).json({ msg: 'Email and account type are required.' });
+        if (!/^\d{6}$/.test(otp)) return res.status(400).json({ msg: 'Enter the 6-digit code.' });
+        if (!newPassword || newPassword.length < 6) return res.status(400).json({ msg: 'Password must be at least 6 characters.' });
+
+        const record = await PasswordReset.findOne({ email });
+        if (!record || record.expiresAt < new Date()) {
+            if (record) await record.deleteOne();
+            return res.status(400).json({ msg: 'This code has expired. Please request a new one.', expired: true });
+        }
+        if (record.attempts >= MAX_ATTEMPTS) {
+            await record.deleteOne();
+            return res.status(429).json({ msg: 'Too many wrong attempts. Please request a new code.', expired: true });
+        }
+        if (!safeEqual(record.otpHash, hashOtp(email, otp, 'reset'))) {
+            record.attempts += 1;
+            await record.save();
+            const left = MAX_ATTEMPTS - record.attempts;
+            return res.status(400).json({ msg: `Incorrect code. ${left} attempt${left === 1 ? '' : 's'} left.` });
+        }
+
+        const user = await User.findOne({ email });
+        if (!user || user.role !== role) {
+            await record.deleteOne();
+            return res.status(400).json({ msg: 'This code has expired. Please request a new one.', expired: true });
+        }
+
+        user.password = await bcrypt.hash(newPassword, await bcrypt.genSalt(10));
+        await user.save();
+        await record.deleteOne();
+        res.json({ msg: 'Password updated. You can sign in with your new password.' });
+    } catch (err) {
+        console.error('Reset Password Error:', err.message);
+        res.status(500).json({ msg: 'Server error. Please try again.' });
+    }
+};
+</file>
+
+<file path="models/User.js">
+const mongoose = require("mongoose");
+
+const UserSchema = new mongoose.Schema({
+    name: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    email: {
+        type: String,
+        unique: true,
+        required: true,
+        lowercase: true,
+        trim: true
+    },
+    phone: {
+        type: String,
+        required: function () {
+            return this.role === 'student';
+        },
+        trim: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    passportNumber: {
+        type: String,
+        unique: true,
+        sparse: true,
+        trim: true,
+        required: function () {
+            return this.role === 'student';
+        }
+    },
+    role: {
+        type: String,
+        enum: ["student", "admin", "university"],
+        default: "student"
+    },
+
+    // --- ADMIN APPROVAL PROTOCOL ---
+    isApproved: {
+        type: Boolean,
+        default: false
+    },
+    // Account level rejection ke liye (Frontend par show karne ke liye)
+    rejectionRemarks: {
+        type: String,
+        default: null
+    },
+
+    // --- PORTAL SYNC FLAG ---
+    isSlipLinked: {
+        type: Boolean,
+        default: false
+    },
+
+    // --- PAYMENT SYSTEM ---
+    isPaid: {
+        type: Boolean,
+        default: false
+    },
+    paymentDetails: {
+        transactionId: {
+            type: String,
+            default: ""
+        },
+        proofImage: {
+            type: String,
+            default: ""
+        },
+        paymentStatus: {
+            type: String,
+            enum: ["None", "Pending", "Approved", "Rejected"],
+            default: "None"
+        },
+        submittedAt: {
+            type: Date
+        }
+    },
+
+    // University Specific Field
+    instituteName: {
+        type: String,
+        trim: true
+    },
+
+    // --- DOCUMENTS ARRAY ---
+    documents: [
+        {
+            title: { type: String },
+            institute: { type: String },
+            fileUrl: { type: String },
+            verifyCode: { type: String },
+            verifySlip: { type: String, default: "" },
+            verificationImg: { type: String, default: "" },
+            remarks: {
+                type: String,
+                default: ""
+            },
+            status: {
+                type: String,
+                enum: ["Pending", "Verified", "Rejected"],
+                default: "Pending"
+            },
+            verifiedAt: { type: Date },
+            createdAt: { type: Date, default: Date.now }
+        }
+    ],
+
+    // Account level active/inactive status
+    isActive: {
+        type: Boolean,
+        default: true
+    }
+
+}, {
+    timestamps: true
+});
+
+// --- OPTIMIZATION & INDEXING ---
+UserSchema.index({ role: 1, isApproved: 1 });
+UserSchema.index({ email: 1 });
+UserSchema.index({ "documents.verifyCode": 1 }, { sparse: true });
+UserSchema.index({ "paymentDetails.paymentStatus": 1 });
+
+module.exports = mongoose.models.User || mongoose.model("User", UserSchema);
+</file>
+
+<file path="Routes/adminRoutes.js">
+const express = require('express');
+const router = express.Router();
+
+// --- MIDDLEWARES ---
+const { protect, adminOnly } = require('../middleware/auth');
+const upload = require('../middleware/cloudinaryConfig');
+
+// --- CONTROLLER IMPORT ---
+const adminController = require('../Controllers/adminController');
+
+// ============================================================
+// 1. ANALYTICS & DIRECTORY ROUTES
+// ============================================================
+
+/**
+ * @route   GET /api/admin/stats
+ * @desc    Dashboard stats aur overall counts (Revenue, Trends)
+ */
+router.get('/stats', protect, adminOnly, adminController.getAdminStats);
+
+/**
+ * @route   GET /api/admin/students
+ * @desc    Tamam students aur universities ki list fetch karne ke liye
+ */
+router.get('/students', protect, adminOnly, adminController.getAllStudents);
+
+/**
+ * @route   GET /api/admin/student-profile/:id
+ * @desc    Kisi aik student ka mukammal data profile view ke liye
+ */
+router.get('/student-profile/:id', protect, adminOnly, adminController.getStudentDetails);
+
+// ============================================================
+// 2. USER MANAGEMENT (APPROVE, REJECT, DELETE & STATUS)
+// ============================================================
+
+/**
+ * @route   GET /api/admin/pending-users
+ */
+router.get('/pending-users', protect, adminOnly, adminController.getPendingUsers);
+
+/**
+ * @route   PUT /api/admin/approve/:id
+ */
+router.put('/approve/:id', protect, adminOnly, adminController.approveUser);
+
+/**
+ * @route   PUT /api/admin/reject/:id
+ */
+router.put('/reject/:id', protect, adminOnly, adminController.rejectUser);
+
+/**
+ * @route   PATCH /api/admin/users/:id/toggle-status
+ * @desc    Frontend Toggle Status match (Active/Inactive)
+ */
+router.patch('/users/:id/toggle-status', protect, adminOnly, adminController.toggleUserStatus);
+
+/**
+ * @route   DELETE /api/admin/users/:id
+ * @desc    Frontend Delete match (Student/University)
+ */
+router.delete('/users/:id', protect, adminOnly, adminController.deleteUser);
+
+/**
+ * @route   PATCH /api/admin/user-status/:id
+ * @desc    Legacy Status Toggle route for backward compatibility
+ */
+router.patch('/user-status/:id', protect, adminOnly, adminController.toggleUserStatus);
+
+/**
+ * @route   DELETE /api/admin/delete-user/:id
+ * @desc    Legacy Delete route for backward compatibility
+ */
+router.delete('/delete-user/:id', protect, adminOnly, adminController.deleteUser);
+
+// ============================================================
+// 3. DOCUMENT VERIFICATION & MANAGEMENT
+// ============================================================
+
+/**
+ * @route   DELETE /api/admin/delete-document/:studentId/:docId
+ * @desc    Specific document delete karne ke liye (Original naming preserved)
+ */
+router.delete('/delete-document/:studentId/:docId', protect, adminOnly, adminController.deleteStudentDocument);
+
+/**
+ * @route   DELETE /api/admin/verify-single-doc/delete/:studentId/:docIndex
+ * @desc    Unique path for single document deletion to avoid route clash
+ */
+router.delete(
+    '/verify-single-doc/delete/:studentId/:docIndex',
+    protect,
+    adminOnly,
+    adminController.verifySingleDocument
+);
+
+/**
+ * @route   PUT /api/admin/verify-single-doc/:studentId/:docId
+ * @desc    PRODUCTION READY: Verification path with dual IDs to prevent 404
+ */
+router.put(
+    '/verify-single-doc/:studentId/:docId',
+    protect,
+    adminOnly,
+    upload.single('attestedDoc'),
+    adminController.verifySingleDocument
+);
+
+/**
+ * @route   PUT /api/admin/verify-doc/:studentId/:docId
+ * @desc    Document verification with manual Screenshot upload (Legacy Flow)
+ */
+router.put(
+    '/verify-doc/:studentId/:docId',
+    protect,
+    adminOnly,
+    upload.single('file'),
+    adminController.verifyDocument
+);
+
+// ============================================================
+// 4. FINANCIAL & FEE MANAGEMENT
+// ============================================================
+
+/**
+ * @route   GET /api/admin/fee-records
+ */
+router.get('/fee-records', protect, adminOnly, adminController.getAllFeeRecords);
+
+/**
+ * @route   PUT /api/admin/update-fee/:studentId
+ */
+router.put('/update-fee/:studentId', protect, adminOnly, adminController.updateFeeStatus);
+
+module.exports = router;
+</file>
+
+<file path="package.json">
+{
+    "name": "backend",
+    "version": "1.0.0",
+    "main": "server.js",
+     "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+    "dependencies": {
+        "bcryptjs": "^3.0.3",
+        "cloudinary": "^1.41.3",
+        "cors": "^2.8.6",
+        "dotenv": "^17.3.1",
+        "express": "^5.2.1",
+        "express-rate-limit": "^8.7.1",
+        "helmet": "^8.3.0",
+        "jsonwebtoken": "^9.0.3",
+        "moment": "^2.30.1",
+        "mongoose": "^9.3.3",
+        "morgan": "^1.10.1",
+        "multer": "^1.4.5-lts.1",
+        "multer-storage-cloudinary": "^4.0.0",
+        "nodemailer": "^7.0.13"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.14"
+    }
+}
+</file>
+
+<file path="Controllers/adminController.js">
+const User = require('../models/User');
+const moment = require('moment');
+const { isConfigured, sendDocumentStatusEmail } = require('../utils/mailer');
+
+
+exports.getAdminStats = async (req, res) => {
+    try {
+        const { period } = req.query;
+        let startDate;
+
+        if (period === 'day') startDate = moment().startOf('day').toDate();
+        else if (period === 'week') startDate = moment().subtract(7, 'days').startOf('day').toDate();
+        else if (period === 'month') startDate = moment().subtract(30, 'days').startOf('day').toDate();
+        else startDate = new Date(0);
+
+        const totalStudents = await User.countDocuments({ role: 'student' });
+        const totalUniversities = await User.countDocuments({ role: 'university' });
+
+        // Only universities wait for approval now (students verify by email code)
+        const pendingApprovals = await User.countDocuments({
+            isApproved: false,
+            role: 'university'
+        });
+
+        const paidUsersCount = await User.countDocuments({
+            role: 'student',
+            isPaid: true,
+            createdAt: { $gte: startDate }
+        });
+        const totalRevenue = paidUsersCount * 5000;
+
+        const diffDays = period === 'day' ? 1 : period === 'week' ? 7 : period === 'month' ? 30 : 0;
+        const lastPeriodStart = diffDays > 0
+            ? moment(startDate).subtract(diffDays, 'days').toDate()
+            : new Date(0);
+
+        const previousPaidCount = await User.countDocuments({
+            role: 'student',
+            isPaid: true,
+            createdAt: { $gte: lastPeriodStart, $lt: startDate }
+        });
+
+        let revenueTrend;
+        if (previousPaidCount === 0) {
+            revenueTrend = paidUsersCount > 0 ? "+100%" : "+0%";
+        } else {
+            const percentage = (((paidUsersCount - previousPaidCount) / previousPaidCount) * 100).toFixed(0);
+            revenueTrend = percentage >= 0 ? `+${percentage}%` : `${percentage}%`;
+        }
+
+        res.json({
+            totalStudents,
+            totalUniversities,
+            totalRevenue,
+            pendingApprovals,
+            studentTrend: "+12%",
+            revenueTrend: revenueTrend
+        });
+    } catch (err) {
+        res.status(500).json({ msg: "Stats calculation failed", error: err.message });
+    }
+};
+
+exports.getAllStudents = async (req, res) => {
+    try {
+        const { search } = req.query;
+        let query = { role: { $in: ['student', 'university'] } };
+
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } },
+                { passportNumber: { $regex: search, $options: 'i' } },
+                { instituteName: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const students = await User.find(query).select('-password').sort({ createdAt: -1 });
+        res.json(students);
+    } catch (err) {
+        res.status(500).json({ msg: "Error fetching students" });
+    }
+};
+
+exports.getStudentDetails = async (req, res) => {
+    try {
+        const student = await User.findById(req.params.id).select('-password');
+        if (!student) return res.status(404).json({ msg: "Student details not found" });
+        res.json(student);
+    } catch (err) {
+        res.status(500).json({ msg: "Error fetching profile details" });
+    }
+};
+
+// ============================================================
+// 2. USER MANAGEMENT (APPROVE, REJECT, DELETE & STATUS)
+// ============================================================
+
+exports.getPendingUsers = async (req, res) => {
+    try {
+        const pendingUsers = await User.find({
+            isApproved: false,
+            role: 'university'
+        }).select('-password').sort({ createdAt: -1 });
+        res.json(pendingUsers);
+    } catch (err) {
+        res.status(500).json({ msg: "Error fetching pending users" });
+    }
+};
+
+exports.approveUser = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        if (user.role !== 'university') return res.status(400).json({ msg: "Only university accounts need approval" });
+        user.isApproved = true;
+        user.rejectionRemarks = null;
+        await user.save();
+        res.json({ msg: "Approved successfully", isApproved: true });
+    } catch (err) {
+        res.status(500).json({ msg: "Server Error during approval" });
+    }
+};
+
+exports.rejectUser = async (req, res) => {
+    try {
+        const { remarks } = req.body;
+        if (!remarks) return res.status(400).json({ msg: "Remarks are required for rejection" });
+
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        if (user.role !== 'university') return res.status(400).json({ msg: "Only university accounts can be rejected" });
+
+        user.isApproved = false;
+        user.rejectionRemarks = remarks;
+        await user.save();
+        res.json({ msg: "User rejected successfully", remarks: user.rejectionRemarks });
+    } catch (err) {
+        res.status(500).json({ msg: "Error rejecting user" });
+    }
+};
+
+exports.toggleUserStatus = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        user.isActive = !user.isActive;
+        await user.save();
+        res.json({ msg: `User is ${user.isActive ? 'Active' : 'Inactive'}`, isActive: user.isActive });
+    } catch (err) {
+        res.status(500).json({ msg: "Error updating user status" });
+    }
+};
+
+exports.deleteUser = async (req, res) => {
+    try {
+        const user = await User.findByIdAndDelete(req.params.id);
+        if (!user) return res.status(404).json({ msg: "User not found" });
+        res.json({ msg: "User record deleted permanently" });
+    } catch (err) {
+        res.status(500).json({ msg: "Error deleting user" });
+    }
+};
+
+// ============================================================
+// 3. DOCUMENT VERIFICATION & SINGLE DOC DELETION
+// ============================================================
+
+// Best-effort email to the student; never blocks or fails the admin's action
+const notifyStudent = (student, doc) => {
+    if (!isConfigured() || !['Verified', 'Rejected'].includes(doc.status)) return;
+    sendDocumentStatusEmail({
+        to: student.email,
+        name: student.name,
+        title: doc.title,
+        status: doc.status,
+        remarks: doc.remarks
+    }).catch((e) => console.error('Status email failed:', e.message));
+};
+
+exports.verifySingleDocument = async (req, res) => {
+    try {
+        const { studentId, docId } = req.params;
+        const { remarks, status } = req.body;
+
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ success: false, msg: "Student profile not found" });
+
+        let targetDoc;
+        if (!isNaN(docId)) {
+            const idx = parseInt(docId);
+            targetDoc = student.documents[idx];
+        } else {
+            targetDoc = student.documents.id(docId);
+        }
+
+        if (!targetDoc) return res.status(404).json({ success: false, msg: "Specific document not found" });
+
+        targetDoc.status = status || 'Verified';
+        targetDoc.remarks = remarks || (status === 'Rejected' ? 'Document Rejected' : 'Verified');
+        targetDoc.verifiedAt = new Date();
+
+        if (req.file) {
+            targetDoc.verifySlip = req.file.path;
+            targetDoc.verificationImg = req.file.path;
+        }
+
+        student.isSlipLinked = true;
+        await student.save();
+        notifyStudent(student, targetDoc);
+
+        res.json({ success: true, msg: `Document ${targetDoc.status} Successfully`, student });
+
+    } catch (err) {
+        console.error("Single Verify Error:", err.message);
+        res.status(500).json({ success: false, msg: "Server error: " + err.message });
+    }
+};
+
+exports.verifyDocument = async (req, res) => {
+    try {
+        const { studentId, docId } = req.params;
+        if (!req.file) return res.status(400).json({ msg: "Screenshot required" });
+
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ msg: "Student not found" });
+
+        const doc = student.documents.id(docId);
+        if (!doc) return res.status(404).json({ msg: "Document not found" });
+
+        doc.verifySlip = req.file.path;
+        doc.verificationImg = req.file.path;
+        doc.status = "Verified";
+        doc.verifiedAt = new Date();
+        student.isSlipLinked = true;
+
+        await student.save();
+        notifyStudent(student, doc);
+        res.json({ msg: "Verified successfully!", student });
+    } catch (err) {
+        res.status(500).send("Server Error");
+    }
+};
+
+exports.deleteStudentDocument = async (req, res) => {
+    try {
+        const { studentId, docId } = req.params;
+        const student = await User.findById(studentId);
+        if (!student) return res.status(404).json({ msg: "Student not found" });
+
+        if (!isNaN(docId)) {
+            student.documents.splice(parseInt(docId), 1);
+        } else {
+            student.documents = student.documents.filter(d => d._id.toString() !== docId);
+        }
+
+        await student.save();
+        res.json({ msg: "Document deleted", documents: student.documents });
+
+    } catch (err) {
+        res.status(500).json({ msg: "Server error", error: err.message });
+    }
+};
+
+// ============================================================
+// 4. FINANCIAL & FEE MANAGEMENT
+// ============================================================
+
+exports.getAllFeeRecords = async (req, res) => {
+    try {
+        const users = await User.find({ role: 'student', isPaid: true })
+            .select('name email amount createdAt').sort({ createdAt: -1 });
+        res.json(users);
+    } catch (err) {
+        res.status(500).json({ msg: "Error fetching records" });
+    }
+};
+
+exports.updateFeeStatus = async (req, res) => {
+    try {
+        const { isPaid } = req.body;
+        const student = await User.findById(req.params.studentId);
+        if (!student) return res.status(404).json({ msg: "Student not found" });
+        student.isPaid = isPaid;
+        await student.save();
+        res.json({ msg: "Fee status updated", isPaid: student.isPaid });
+    } catch (err) {
+        res.status(500).json({ msg: "Error updating fee" });
+    }
+};
+</file>
+
+<file path="server.js">
+const express = require('express');
+const dotenv = require('dotenv');
+const cors = require('cors');
+const morgan = require('morgan');
+const path = require('path');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+// ==========================
+// LOAD ENV VARIABLES
+// ==========================
+dotenv.config();
+
+// ==========================
+// IMPORT DATABASE & ROUTES
+// ==========================
+const connectDB = require('./DB/db');
+
+const authRoutes = require('./Routes/auth');
+const adminRoutes = require('./Routes/adminRoutes');
+const studentRoutes = require('./Routes/studentRoutes');
+const universityRoutes = require('./Routes/universityRoutes');
+const publicRoutes = require('./Routes/publicRoutes');
+
+// ==========================
+// DEBUG LOGS
+// ==========================
+console.log("------------------------------------------");
+console.log("🚀 STARTING SERVER DEBUG CHECK...");
+console.log("📂 Current Directory:", __dirname);
+console.log("🌐 NODE_ENV:", process.env.NODE_ENV);
+
+console.log(
+    "🔑 MONGODB_URI:",
+    process.env.MONGODB_URI
+        ? "FOUND (Length: " + process.env.MONGODB_URI.length + ")"
+        : "NOT FOUND ❌"
+);
+
+console.log(
+    "🖼️ CLOUDINARY_NAME:",
+    process.env.CLOUDINARY_CLOUD_NAME
+        ? "FOUND ✅"
+        : "MISSING ❌"
+);
+
+console.log(
+    "📍 PORT VARIABLE:",
+    process.env.PORT || "NOT SET (Using Default 5000)"
+);
+
+console.log(
+    "📡 FRONTEND_URL:",
+    process.env.FRONTEND_URL || "NOT SET ❌"
+);
+
+console.log("------------------------------------------");
+
+if (require.main === module) connectDB();
+
+
+const app = express();
+
+// Behind Render/Vercel/Nginx the real client IP comes from the proxy (needed for rate limiting)
+app.set('trust proxy', 1);
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// Brute-force protection for login / signup / OTP / reset, and for the public verification page
+const makeLimiter = (limit) => rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: () => process.env.NODE_ENV === 'test',
+    message: { success: false, msg: 'Too many requests. Please wait a few minutes and try again.' }
+});
+
+
+const allowedOrigins = [
+    'http://localhost:3000',
+    process.env.FRONTEND_URL,
+    'https://documents-verification-frontend.vercel.app'
+];
+
+
+app.use(cors({
+
+    origin: function (origin, callback) {
+
+
+        if (!origin) {
+            return callback(null, true);
+        }
+
+        if (allowedOrigins.includes(origin)) {
+
+            callback(null, true);
+
+        } else {
+
+            console.log("❌ Blocked by CORS Origin:", origin);
+
+            callback(
+                new Error('Not allowed by CORS (Qual Check Security)')
+            );
+        }
+    },
+
+    methods: [
+        'GET',
+        'POST',
+        'PUT',
+        'PATCH',
+        'DELETE',
+        'OPTIONS'
+    ],
+
+    allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'x-auth-token'
+    ],
+
+    credentials: true
+}));
+
+
+app.use(morgan('dev'));
+
+app.use(express.json({
+    limit: '10mb'
+}));
+
+app.use(express.urlencoded({
+    limit: '10mb',
+    extended: true
+}));
+
+
+app.use('/api/auth', makeLimiter(100), authRoutes);
+
+app.use('/api/admin', adminRoutes);
+
+app.use('/api/student', studentRoutes);
+
+app.use('/api/university', universityRoutes);
+
+app.use('/api/public', makeLimiter(200), publicRoutes);
+
+
+app.get('/', (req, res) => {
+
+    res.json({
+        status: "Success",
+        message: 'Qual Check CRM API is running smoothly...',
+        environment: process.env.NODE_ENV || 'development',
+        db_status: process.env.MONGODB_URI
+            ? "Configured"
+            : "Missing",
+        version: "1.0.4"
+    });
+
+});
+
+app.use((err, req, res, next) => {
+
+    console.error("🔥 Global Error Log:", err.stack);
+
+    // File Size Error
+    if (err.code === 'LIMIT_FILE_SIZE') {
+
+        return res.status(400).json({
+            success: false,
+            msg: "File size too large (Max 10MB)"
+        });
+    }
+
+    // CORS Error
+    if (err.message.includes('CORS')) {
+
+        return res.status(403).json({
+            success: false,
+            msg: err.message
+        });
+    }
+
+    res.status(err.status || 500).json({
+        success: false,
+        msg: err.message || "Internal Server Error",
+
+        error:
+            process.env.NODE_ENV === 'development'
+                ? err.stack
+                : {}
+    });
+
+});
+
+const PORT = process.env.PORT || 5000;
+
+if (require.main === module) app.listen(PORT, '0.0.0.0', () => {
+
+    console.log(
+        `✅ SERVER SUCCESS: Running on port ${PORT}`
+    );
+
+    console.log(
+        `📡 Health Check Link: http://localhost:${PORT}/`
+    );
+
+});
+
+module.exports = app;
+</file>
+
+</files>
